@@ -1,3 +1,7 @@
+mod loader;
+mod model;
+
+use crate::model::ExecutableSample;
 use anyhow::{bail, Context, Result};
 use async_tar::{Archive, Entry, EntryType};
 use debian_packaging::deb::reader::{BinaryPackageEntry, BinaryPackageReader};
@@ -5,7 +9,7 @@ use debian_packaging::repository::{BinaryPackageFetch, ReleaseReader};
 use futures_util::{AsyncRead, AsyncReadExt, StreamExt};
 use indicatif::{ProgressBar, ProgressStyle};
 use object::read::elf::ElfFile32;
-use object::{Architecture, LittleEndian, Object};
+use object::{Architecture, Object};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::{BTreeMap, HashSet};
@@ -182,10 +186,10 @@ async fn extract_files<
 
 // #[derive(Yokeable)]
 #[repr(transparent)]
-struct YokableElf<'a>(ElfFile32<'a, LittleEndian>);
+struct YokableElf<'a>(ElfFile32<'a>);
 
 unsafe impl<'a> Yokeable<'a> for YokableElf<'static> {
-    type Output = ElfFile32<'a, LittleEndian>;
+    type Output = ElfFile32<'a>;
 
     fn transform(&'a self) -> &'a Self::Output {
         &self.0
@@ -282,6 +286,10 @@ async fn map_filter_debug(
             None
         }
     })
+}
+
+async fn save_sample(sample: ExecutableSample) -> Result<()> {
+    todo!()
 }
 
 async fn main_impl() -> Result<()> {
@@ -385,6 +393,18 @@ async fn main_impl() -> Result<()> {
             let build_id = hex::encode(executable.get().build_id().unwrap().unwrap());
             if let Some(debug_info) = debugs.get(&build_id) {
                 progress.println(format!("EXE {} {}", build_id, filename));
+
+                save_sample(
+                    ExecutableSample::from_debian(executable.get(), debug_info.get())
+                        .with_context(|| {
+                            format!(
+                                "Parsing executable {} in package {}",
+                                filename, package_name
+                            )
+                        })?,
+                )
+                .await
+                .context("Saving executable sample")?;
             } else {
                 progress.println(format!(
                     "Executable {} in package {} is missing debug info",

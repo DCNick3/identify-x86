@@ -1155,6 +1155,7 @@ dependencies = [
  "futures-util",
  "hex",
  "indicatif",
+ "memory-image",
  "object",
  "once_cell",
  "regex",
@@ -1346,6 +1347,15 @@ name = "memchr"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2dffe52ecf27772e601905b7522cb4ef790d2cc203488bbd0e2fe85fcb74566d"
+
+[[package]]
+name = "memory-image"
+version = "0.1.0"
+dependencies = [
+ "bitflags",
+ "serde",
+ "serde_bytes",
+]
 
 [[package]]
 name = "mime"
@@ -2084,6 +2094,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0f747710de3dcd43b88c9168773254e809d8ddbdf9653b84e2554ab219f17860"
 dependencies = [
  "serde_derive",
+]
+
+[[package]]
+name = "serde_bytes"
+version = "0.11.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfc50e8183eeeb6178dcb167ae34a8051d63535023ae38b5d8d12beae193d37b"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
