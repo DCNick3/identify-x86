@@ -1153,8 +1153,11 @@ dependencies = [
  "debian-packaging",
  "futures-io",
  "futures-util",
+ "hex",
  "indicatif",
  "object",
+ "once_cell",
+ "regex",
  "tokio",
  "yoke",
 ]

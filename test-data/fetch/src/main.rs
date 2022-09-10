@@ -6,6 +6,8 @@ use futures_util::{AsyncRead, AsyncReadExt, StreamExt};
 use indicatif::{ProgressBar, ProgressStyle};
 use object::read::elf::ElfFile32;
 use object::{Architecture, LittleEndian, Object};
+use once_cell::sync::Lazy;
+use regex::Regex;
 use std::collections::{BTreeMap, HashSet};
 use std::future::Future;
 use std::io::Read;
@@ -229,9 +231,51 @@ async fn map_filter_exec(
         let buffer: Arc<[u8]> = Arc::from(buffer.as_ref());
 
         if let Ok(elf) = YokeElf::try_attach_to_cart(buffer, |cart| ElfFile32::parse(cart)) {
-            if elf.get().architecture() == Architecture::I386 {
+            if elf.get().architecture() == Architecture::I386
+                && elf.get().build_id().unwrap().is_some()
+            {
                 Some(elf)
             } else {
+                None
+            }
+        } else {
+            None
+        }
+    })
+}
+
+static DEBUG_FILENAME_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"^./usr/lib/debug/.build-id/([0-9a-f]{2})/([0-9a-f]{38}).debug$"#).unwrap()
+});
+
+async fn map_filter_debug(
+    mut entry: Entry<Archive<Box<dyn AsyncRead + Unpin>>>,
+) -> Result<Option<(String, YokeElf)>> {
+    Ok({
+        let filename = entry.path().unwrap().to_str().unwrap().to_string();
+        if let Some(c) = DEBUG_FILENAME_REGEX.captures(&filename) {
+            let buildid = format!(
+                "{}{}",
+                c.get(1).unwrap().as_str(),
+                c.get(2).unwrap().as_str()
+            );
+
+            let mut buffer = Vec::new();
+            entry
+                .read_to_end(&mut buffer)
+                .await
+                .context("Reading the executable file")?;
+
+            let buffer: Arc<[u8]> = Arc::from(buffer.as_ref());
+
+            if let Ok(elf) = YokeElf::try_attach_to_cart(buffer, |cart| ElfFile32::parse(cart)) {
+                if elf.get().architecture() == Architecture::I386 {
+                    Some((buildid, elf))
+                } else {
+                    None
+                }
+            } else {
+                // println!("Could not parse debug info file {}", filename);
                 None
             }
         } else {
@@ -300,6 +344,7 @@ async fn main_impl() -> Result<()> {
     );
 
     for package_name in packages_to_fetch.keys() {
+        progress.println(format!("[[{}]]", package_name));
         let package = packages_to_fetch.get(package_name).unwrap();
         let (debug_package_source, debug_package) =
             debug_packages_to_fetch.get(package_name).unwrap();
@@ -312,12 +357,14 @@ async fn main_impl() -> Result<()> {
         let package_size = package.size;
         let debug_package_size = debug_package.size;
 
+        progress.set_message(format!("Fetching {}", package_name));
         let package = repo_reader
             .fetch_binary_package_deb_reader(package.clone())
             .await
             .with_context(|| format!("Downloading package {}", package_name))?;
         progress.inc(package_size);
 
+        progress.set_message(format!("Fetching debug symbols for {}", package_name));
         let debug_package = debug_package_rr
             .fetch_binary_package_deb_reader(debug_package.clone())
             .await
@@ -328,10 +375,28 @@ async fn main_impl() -> Result<()> {
             .await
             .with_context(|| format!("Extracting package {}", package_name))?;
 
-        progress.println(format!(
-            "executables: {:?}",
-            executables.keys().collect::<Vec<_>>()
-        ));
+        let debugs = extract_files(debug_package, map_filter_debug)
+            .await
+            .with_context(|| format!("Extracting debug package {}", package_name))?
+            .into_values()
+            .collect::<BTreeMap<_, _>>();
+
+        for (filename, executable) in executables {
+            let build_id = hex::encode(executable.get().build_id().unwrap().unwrap());
+            if let Some(debug_info) = debugs.get(&build_id) {
+                progress.println(format!("EXE {} {}", build_id, filename));
+            } else {
+                progress.println(format!(
+                    "Executable {} in package {} is missing debug info",
+                    filename, package_name
+                ));
+            }
+        }
+
+        // progress.println(format!(
+        //     "executables: {:?}",
+        //     executables.keys().collect::<Vec<_>>()
+        // ));
     }
 
     Ok(())
