@@ -13,7 +13,7 @@ impl ExecutableSample {
     pub fn from_debian(executable: &ElfFile32, debug_info: &ElfFile32) -> Result<Self> {
         let memory = load_elf(executable)?;
 
-        println!("{}", memory.map());
+        // println!("{}", memory.map());
 
         todo!()
     }
