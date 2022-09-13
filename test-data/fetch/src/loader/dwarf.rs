@@ -1,8 +1,8 @@
 use anyhow::{anyhow, bail, Context, Result};
 use gimli::{
-    AttributeValue, DW_AT_high_pc, DW_AT_language, DW_AT_location, DW_AT_low_pc, DW_AT_name,
-    DW_AT_ranges, DW_LANG_Mips_Assembler, EndianReader, EvaluationResult, Location, Piece,
-    RunTimeEndian,
+    AttributeValue, DW_AT_byte_size, DW_AT_high_pc, DW_AT_language, DW_AT_location, DW_AT_low_pc,
+    DW_AT_name, DW_AT_ranges, DW_AT_specification, DW_AT_type, DW_LANG_Mips_Assembler,
+    EndianReader, EvaluationResult, Location, Piece, RunTimeEndian,
 };
 use object::read::elf::ElfFile32;
 use object::{Object, ObjectSection};
@@ -140,6 +140,50 @@ fn compute_location(unit: &Unit, entry: &DebuggingInformationEntry) -> Result<Op
     })
 }
 
+fn get_type<'unit>(
+    unit: &'unit Unit,
+    entry: &DebuggingInformationEntry<'unit, 'unit>,
+) -> Result<DebuggingInformationEntry<'unit, 'unit>> {
+    Ok(if let Some(ty) = entry.attr(DW_AT_type)? {
+        let ty = match ty.value() {
+            AttributeValue::UnitRef(offset) => unit.entry(offset)?,
+            _ => unreachable!(),
+        };
+
+        ty
+    } else if let Some(spec) = entry.attr(DW_AT_specification)? {
+        let v = if let AttributeValue::UnitRef(v) = spec.value() {
+            v
+        } else {
+            unreachable!()
+        };
+        let mut spec = unit.entries_at_offset(v)?;
+        spec.next_entry()?.unwrap();
+        let spec = spec.current().unwrap();
+
+        get_type(unit, spec)?.clone()
+    } else {
+        unreachable!(
+            "How can we get a type of an entry without DW_AT_type and no DW_AT_specification?"
+        );
+    })
+}
+
+fn get_ty_size(unit: &Unit, ty: &DebuggingInformationEntry) -> Result<u32> {
+    Ok(if let Some(size) = ty.attr(DW_AT_byte_size)? {
+        size.udata_value().unwrap().try_into().unwrap()
+    } else if let Some(ty) = ty.attr(DW_AT_type)? {
+        let ty = match ty.value() {
+            AttributeValue::UnitRef(offset) => unit.entry(offset)?,
+            _ => unreachable!(),
+        };
+
+        get_ty_size(unit, &ty)?
+    } else {
+        unreachable!("How can we get a size of a type without DW_AT_byte_size and no DW_AT_type?")
+    })
+}
+
 fn collect_data(
     res: &mut AddressRange,
     dwarf: &Dwarf,
@@ -161,24 +205,18 @@ fn collect_data(
                     continue;
                 }
 
-                let addr = compute_location(unit, entry)?.unwrap();
+                // let mut attrs = entry.attrs();
+                // while let Some(attr) = attrs.next()? {
+                //     println!("    {}", attr.name());
+                // }
 
-                if let Some(spec) = entry.attr(DW_AT_specification)? {
-                    let v = if let AttributeValue::UnitRef(v) = spec.value() {
-                        v
-                    } else {
-                        unreachable!()
-                    };
-                    let mut spec = unit.entries_at_offset(v)?;
-                    spec.next_entry()?.unwrap();
-                    let spec = spec.current().unwrap();
+                // no location means that the variable is optimized out
+                if let Some(addr) = compute_location(unit, entry)? {
+                    let ty = get_type(unit, entry)?;
+                    let size = get_ty_size(unit, &ty)?;
 
-
-                    let mut attrs = spec.attrs();
-                    while let Some(attr) = attrs.next()? {
-                        println!("    {}", attr.name());
-                    }
-                    todo!()
+                    // println!("Data: 0x{:08x}, sz = {:x}", addr, size);
+                    res.add_range(addr, addr + size);
                 }
             }
             DW_TAG_class_type => {
