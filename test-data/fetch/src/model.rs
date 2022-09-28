@@ -1,4 +1,4 @@
-use crate::loader::load_dwarf;
+use crate::loader::load_debug;
 use crate::loader::load_elf;
 use anyhow::Result;
 use memory_image::MemoryImage;
@@ -14,7 +14,7 @@ pub struct ExecutableSample {
 impl ExecutableSample {
     pub fn from_debian(executable: &ElfFile32, debug_info: &ElfFile32) -> Result<Self> {
         let memory = load_elf(executable)?;
-        let debug = load_dwarf(debug_info)?;
+        let debug = load_debug(debug_info)?;
 
         // println!("{}", memory.map());
 

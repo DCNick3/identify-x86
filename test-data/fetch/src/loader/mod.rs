@@ -1,4 +1,4 @@
-mod dwarf;
+mod debug;
 
 use anyhow::Result;
 use memory_image::{MemoryImage, Protection};
@@ -6,7 +6,7 @@ use object::elf::{PF_R, PF_W, PF_X};
 use object::read::elf::ElfFile32;
 use object::{Object, ObjectSegment, SegmentFlags};
 
-pub use dwarf::{load_dwarf, DwarfInfo};
+pub use debug::{load_debug, DebugInfo};
 
 pub fn load_elf(elf: &ElfFile32) -> Result<MemoryImage> {
     let mut res = MemoryImage::new();

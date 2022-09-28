@@ -4,10 +4,13 @@ use gimli::{
     DW_AT_name, DW_AT_ranges, DW_AT_specification, DW_AT_type, DW_LANG_Mips_Assembler,
     EndianReader, EvaluationResult, Location, Piece, RunTimeEndian,
 };
+use interval::ops::Range;
+use object::elf::STT_FUNC;
 use object::read::elf::ElfFile32;
-use object::{Object, ObjectSection};
+use object::{Object, ObjectSection, ObjectSymbol, SymbolFlags, SymbolKind};
 use std::borrow;
 use std::collections::HashSet;
+use std::ops::Add;
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -19,12 +22,12 @@ type EntriesTreeNode<'abbrev, 'unit, 'tree> = gimli::EntriesTreeNode<'abbrev, 'u
 type DebuggingInformationEntry<'abbrev, 'unit> =
     gimli::DebuggingInformationEntry<'abbrev, 'unit, Reader>;
 
-pub struct DwarfInfo {
+pub struct DebugInfo {
     function_ranges: Vec<AddressRange>,
     data_range: AddressRange,
 }
 
-impl DwarfInfo {
+impl DebugInfo {
     fn new() -> Self {
         Self {
             function_ranges: Default::default(),
@@ -36,27 +39,30 @@ impl DwarfInfo {
 // TODO: devise a smart data structure or smth
 // (this is very suboptimal)
 struct AddressRange {
-    ranges: Vec<(u32, u32)>,
+    range_set: interval::IntervalSet<u32>,
 }
 
 impl AddressRange {
     pub fn new() -> Self {
-        Self { ranges: Vec::new() }
+        Self {
+            range_set: interval::IntervalSet::new(0, 0),
+        }
     }
 
     pub fn from_simple_range(start: u32, end: u32) -> Self {
-        Self {
-            ranges: vec![(start, end)],
-        }
+        let mut res = Self::new();
+        res.add_range(start, end);
+        res
     }
 
     pub fn merge(&mut self, other: &Self) {
         // TODO: this is very suboptimal and probably not even correct
-        self.ranges.extend(other.ranges.iter());
+        self.range_set.extend(other.range_set.iter().cloned());
     }
 
     pub fn add_range(&mut self, start: u32, end: u32) {
-        self.merge(&Self::from_simple_range(start, end));
+        self.range_set
+            .extend(interval::IntervalSet::new(start, end))
     }
 
     pub fn try_from_dwarf_entry(
@@ -315,7 +321,7 @@ fn collect_functions(
     Ok(())
 }
 
-fn load_unit(res: &mut DwarfInfo, dwarf: &Dwarf, unit: &Unit) -> Result<()> {
+fn load_unit(res: &mut DebugInfo, dwarf: &Dwarf, unit: &Unit) -> Result<()> {
     let mut entries = unit.entries_tree(None).context("Getting entries tree")?;
     let root = entries.root().context("Getting root of debug entries")?;
 
@@ -356,7 +362,7 @@ fn load_unit(res: &mut DwarfInfo, dwarf: &Dwarf, unit: &Unit) -> Result<()> {
     Ok(())
 }
 
-pub fn load_dwarf(elf: &ElfFile32) -> Result<DwarfInfo> {
+pub fn load_debug(elf: &ElfFile32) -> Result<DebugInfo> {
     let endian = if elf.is_little_endian() {
         RunTimeEndian::Little
     } else {
@@ -378,14 +384,27 @@ pub fn load_dwarf(elf: &ElfFile32) -> Result<DwarfInfo> {
             Ok(EndianReader::new(bytes, endian))
         };
 
-    let mut res = DwarfInfo::new();
+    let mut res = DebugInfo::new();
 
-    let dwarf = Dwarf::load(&load_section).context("Loading DWARF info")?;
+    // let dwarf = Dwarf::load(&load_section).context("Loading DWARF info")?;
+    //
+    // let mut units = dwarf.units();
+    // while let Some(unit) = units.next().context("Getting a next compile unit")? {
+    //     let unit = dwarf.unit(unit).context("Parsing a DWARF compile unit")?;
+    //     load_unit(&mut res, &dwarf, &unit).context("Loading a debug info compile unit")?;
+    // }
 
-    let mut units = dwarf.units();
-    while let Some(unit) = units.next().context("Getting a next compile unit")? {
-        let unit = dwarf.unit(unit).context("Parsing a DWARF compile unit")?;
-        load_unit(&mut res, &dwarf, &unit).context("Loading a debug info compile unit")?;
+    for sym in elf.symbols() {
+        let kind = sym.kind();
+
+        let addr = sym.address();
+        let name = sym.name().context("Reading symbol name")?;
+        let size = sym.size();
+        // let funs
+
+        if kind == SymbolKind::Text && sym.is_definition() {
+            println!("<{:08x}-{:08x}> {}", addr, addr + size, name);
+        }
     }
 
     Ok(res)

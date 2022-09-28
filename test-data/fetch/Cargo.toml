@@ -22,3 +22,4 @@ tokio = { version = "1.21.0", features = ["macros", "rt"] }
 yoke = { version = "0.6.1", features = ["derive"] }
 gimli = "0.26.2"
 tracing = "0.1.36"
+intervallum = "1.4.0"
