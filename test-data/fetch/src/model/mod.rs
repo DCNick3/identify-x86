@@ -13,18 +13,40 @@ pub struct AddressClasses {
 }
 
 impl AddressClasses {
-    pub fn relocate(&mut self, offset: u32) {
-        self.true_instructions.shift(offset);
-        self.true_data.shift(offset);
-    }
-}
-
-impl AddressClasses {
     pub fn new() -> Self {
         Self {
             true_instructions: IntervalSet::new(),
             true_data: IntervalSet::new(),
         }
+    }
+    pub fn relocate(&mut self, offset: u32) {
+        self.true_instructions.shift(offset);
+        self.true_data.shift(offset);
+    }
+
+    pub fn dump(&self) -> String {
+        let mut data = self
+            .true_instructions
+            .iter()
+            .map(|i| (i, "code"))
+            .chain(self.true_data.iter().map(|i| (i, "data")))
+            .collect::<Vec<_>>();
+        data.sort();
+
+        let mut result = String::new();
+        for (interval, kind) in data {
+            use std::fmt::Write;
+            writeln!(
+                result,
+                "0x{:08x} - 0x{:08x} {}",
+                interval.start(),
+                interval.end(),
+                kind
+            )
+            .unwrap();
+        }
+
+        result
     }
 }
 

@@ -1,4 +1,6 @@
+use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
+use std::fmt::Debug;
 use std::mem;
 
 /// Represents a half-interval [start, end)
@@ -52,7 +54,7 @@ impl<V: num::Integer + Copy> Interval<V> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum IntervalSetNode {
+enum SetNode {
     Start,
     End,
 }
@@ -64,30 +66,61 @@ enum IntervalSetNode {
 /// See https://stackoverflow.com/a/1983402/14747973 or idk
 #[derive(Debug, Clone)]
 pub struct IntervalSet<V: num::Integer + Copy> {
-    intervals: BTreeMap<V, IntervalSetNode>,
+    intervals: BTreeMap<V, SetNode>,
 }
 
-impl<V: num::Integer + Copy> IntervalSet<V> {
+impl<V: num::Integer + Debug + Copy> IntervalSet<V> {
     pub fn new() -> Self {
-        IntervalSet {
+        Self {
             intervals: BTreeMap::new(),
         }
     }
 
     /// Add an interval to the set, merging it with any intersecting intervals.
     pub fn push(&mut self, interval: Interval<V>) {
+        // nasty edge case
+        if interval.is_empty() {
+            return;
+        }
+
+        // calculate before doing anything
+        let contains_start = self.contains(interval.start);
+        let contains_end = self.contains(interval.end);
+
         // insert start point
-        // if there is an end point at the same position - delete it, merging the intervals
         let start_entry = self.intervals.entry(interval.start);
-        if *start_entry.or_insert(IntervalSetNode::Start) == IntervalSetNode::End {
-            self.intervals.remove_entry(&interval.start);
+        match start_entry {
+            Entry::Vacant(v) => {
+                // if the start point does not fall into an existing interval - insert it
+                if !contains_start {
+                    v.insert(SetNode::Start);
+                }
+            }
+            Entry::Occupied(o) if o.get() == &SetNode::Start => {
+                // if the start point is present at the exact same place - do nothing
+            }
+            Entry::Occupied(_) => {
+                // remove the end point if present
+                self.intervals.remove(&interval.start);
+            }
         }
 
         // insert end point
-        // if there is an start point at the same position - delete it, merging the intervals
         let end_entry = self.intervals.entry(interval.end);
-        if *end_entry.or_insert(IntervalSetNode::End) == IntervalSetNode::Start {
-            self.intervals.remove_entry(&interval.end);
+        match end_entry {
+            Entry::Vacant(v) => {
+                // if the end point does not fall into an existing interval - insert it
+                if !contains_end {
+                    v.insert(SetNode::End);
+                }
+            }
+            Entry::Occupied(o) if o.get() == &SetNode::End => {
+                // if the end point is present at the exact same place - do nothing
+            }
+            Entry::Occupied(_) => {
+                // remove the start point if present
+                self.intervals.remove(&interval.end);
+            }
         }
 
         // iterate over the inner points and remove them
@@ -102,6 +135,16 @@ impl<V: num::Integer + Copy> IntervalSet<V> {
         for k in rm_keys {
             self.intervals.remove(&k);
         }
+
+        // dbg!(&self.intervals);
+        // self.check_iter();
+    }
+
+    pub fn contains(&self, value: V) -> bool {
+        matches!(
+            self.intervals.range(..value).last(),
+            Some((_, SetNode::Start))
+        )
     }
 
     /// Shifts all intervals by the given offset.
@@ -124,10 +167,16 @@ impl<V: num::Integer + Copy> IntervalSet<V> {
             inner: self.intervals.iter(),
         }
     }
+
+    /// Checks that the invariants hold.
+    #[allow(unused)]
+    fn check_iter(&self) {
+        self.iter().for_each(|_| {});
+    }
 }
 
 pub struct IntervalSetIter<'a, V: num::Integer + Copy> {
-    inner: std::collections::btree_map::Iter<'a, V, IntervalSetNode>,
+    inner: std::collections::btree_map::Iter<'a, V, SetNode>,
 }
 
 impl<'a, V: num::Integer + Copy> Iterator for IntervalSetIter<'a, V> {
@@ -137,9 +186,9 @@ impl<'a, V: num::Integer + Copy> Iterator for IntervalSetIter<'a, V> {
         match self.inner.next() {
             None => None,
             Some((&start_pos, &start_val)) => {
-                assert_eq!(start_val, IntervalSetNode::Start);
+                assert_eq!(start_val, SetNode::Start);
                 let (&end_pos, &end_val) = self.inner.next().expect("BUG: end point not found");
-                assert_eq!(end_val, IntervalSetNode::End);
+                assert_eq!(end_val, SetNode::End);
 
                 debug_assert!(start_pos <= end_pos);
                 Some(Interval {
@@ -153,8 +202,6 @@ impl<'a, V: num::Integer + Copy> Iterator for IntervalSetIter<'a, V> {
 
 #[cfg(test)]
 mod test {
-    use crate::model::interval_set::Interval;
-
     #[test]
     pub fn test_interval() {
         use super::Interval;
@@ -226,6 +273,30 @@ mod test {
         assert_eq!(
             set.iter().collect::<Vec<_>>(),
             vec![Interval::from_start_and_len(1, 3)]
+        );
+
+        let mut set = IntervalSet::<u32>::new();
+        set.push(Interval::from_start_and_len(1, 1));
+        set.push(Interval::from_start_and_len(1, 0));
+        assert_eq!(
+            set.iter().collect::<Vec<_>>(),
+            vec![Interval::from_start_and_len(1, 1)]
+        );
+
+        let mut set = IntervalSet::<u32>::new();
+        set.push(Interval::from_start_and_len(2, 1));
+        set.push(Interval::from_start_and_len(1, 2));
+        assert_eq!(
+            set.iter().collect::<Vec<_>>(),
+            vec![Interval::from_start_and_len(1, 2)]
+        );
+
+        let mut set = IntervalSet::<u32>::new();
+        set.push(Interval::from_start_and_len(1, 2));
+        set.push(Interval::from_start_and_len(2, 1));
+        assert_eq!(
+            set.iter().collect::<Vec<_>>(),
+            vec![Interval::from_start_and_len(1, 2)]
         );
     }
 }

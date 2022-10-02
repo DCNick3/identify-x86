@@ -13,7 +13,9 @@ async fn save_sample(sample: ExecutableSample) -> Result<()> {
 async fn main_impl() -> Result<()> {
     let file = std::fs::File::open("test-data/llvm/RelWithDebInfo/llvm-tblgen.pdb")?;
     let mut pdb = pdb::PDB::open(file)?;
-    let classes = dump_pdb(0, &mut pdb)?;
+    let classes = dump_pdb(0x400000, &mut pdb)?;
+
+    println!("{}", classes.dump());
 
     Ok(())
 }
