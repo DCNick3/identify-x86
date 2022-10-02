@@ -218,6 +218,15 @@ impl Default for MemoryImage {
     }
 }
 
+impl IntoIterator for MemoryImage {
+    type Item = MemoryImageItem;
+    type IntoIter = std::vec::IntoIter<MemoryImageItem>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.regions.into_iter()
+    }
+}
+
 pub struct MemoryImageMap<'a>(&'a MemoryImage);
 
 impl<'a> Display for MemoryImageMap<'a> {

@@ -359,7 +359,7 @@ fn load_unit(res: &mut DebugInfo, dwarf: &Dwarf, unit: &Unit) -> Result<()> {
     Ok(())
 }
 
-pub fn load_debug(elf: &ElfFile32) -> Result<DebugInfo> {
+pub fn load_dwarf(elf: &ElfFile32) -> Result<DebugInfo> {
     let endian = if elf.is_little_endian() {
         RunTimeEndian::Little
     } else {

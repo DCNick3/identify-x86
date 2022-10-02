@@ -136,8 +136,72 @@ impl<V: num::Integer + Debug + Copy> IntervalSet<V> {
             self.intervals.remove(&k);
         }
 
-        // dbg!(&self.intervals);
-        // self.check_iter();
+        self.check_iter();
+    }
+
+    /// Remove an interval from the set, splitting other intervals if needed
+    pub fn remove(&mut self, interval: Interval<V>) {
+        // nasty edge case
+        if interval.is_empty() {
+            return;
+        }
+
+        // this is similar to push, but we reverse some stuff
+
+        // calculate before doing anything
+        let contains_start = self.contains(interval.start);
+        let contains_end = self.contains(interval.end);
+
+        // insert end point
+        let start_entry = self.intervals.entry(interval.start);
+        match start_entry {
+            Entry::Vacant(v) => {
+                // if the end point does not fall into an existing interval - insert it
+                if contains_start {
+                    v.insert(SetNode::End);
+                }
+            }
+            Entry::Occupied(o) if o.get() == &SetNode::End => {
+                // if the end point is present at the exact same place - do nothing
+            }
+            Entry::Occupied(_) => {
+                // remove the start point if present
+                self.intervals.remove(&interval.start);
+            }
+        }
+
+        // insert start point
+        let end_entry = self.intervals.entry(interval.end);
+        match end_entry {
+            Entry::Vacant(v) => {
+                // if the start point does not fall into an existing interval - insert it
+                if contains_end {
+                    v.insert(SetNode::Start);
+                }
+            }
+            Entry::Occupied(o) if o.get() == &SetNode::Start => {
+                // if the start point is present at the exact same place - do nothing
+            }
+            Entry::Occupied(_) => {
+                // remove the end point if present
+                self.intervals.remove(&interval.end);
+            }
+        }
+
+        // iterate over the inner points and remove them
+        // we have to collect them first because rust doesn't allow us to modify the map while iterating
+        // we could implement our own tree structure to avoid this, but it's not worth it
+        let rm_keys = self
+            .intervals
+            .range(interval.start.add(V::one())..interval.end)
+            .map(|(k, _)| *k)
+            .collect::<smallvec::SmallVec<[V; 8]>>();
+
+        for k in rm_keys {
+            self.intervals.remove(&k);
+        }
+
+        self.check_iter();
     }
 
     pub fn contains(&self, value: V) -> bool {

@@ -104,6 +104,12 @@ pub fn dump_pdb<'a, T: pdb::Source<'a> + 'a>(
             .push(Interval::from_start_and_len(addr, len));
     }
 
+    for data_interval in classes.true_data.iter() {
+        // MSVC PDB reports jump tables as being inside the function
+        // we need to exclude them from the code interval set
+        classes.true_instructions.remove(data_interval);
+    }
+
     classes.relocate(base_addr);
 
     Ok(classes)
