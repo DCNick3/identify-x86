@@ -1,16 +1,13 @@
+use crate::model::interval_set::{Interval, IntervalSet};
 use anyhow::{anyhow, bail, Context, Result};
 use gimli::{
     AttributeValue, DW_AT_byte_size, DW_AT_high_pc, DW_AT_language, DW_AT_location, DW_AT_low_pc,
     DW_AT_name, DW_AT_ranges, DW_AT_specification, DW_AT_type, DW_LANG_Mips_Assembler,
     EndianReader, EvaluationResult, Location, Piece, RunTimeEndian,
 };
-use interval::ops::Range;
-use object::elf::STT_FUNC;
 use object::read::elf::ElfFile32;
-use object::{Object, ObjectSection, ObjectSymbol, SymbolFlags, SymbolKind};
+use object::{Object, ObjectSection, ObjectSymbol, SymbolKind};
 use std::borrow;
-use std::collections::HashSet;
-use std::ops::Add;
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -39,13 +36,13 @@ impl DebugInfo {
 // TODO: devise a smart data structure or smth
 // (this is very suboptimal)
 struct AddressRange {
-    range_set: interval::IntervalSet<u32>,
+    range_set: IntervalSet<u32>,
 }
 
 impl AddressRange {
     pub fn new() -> Self {
         Self {
-            range_set: interval::IntervalSet::new(0, 0),
+            range_set: IntervalSet::new(),
         }
     }
 
@@ -57,12 +54,12 @@ impl AddressRange {
 
     pub fn merge(&mut self, other: &Self) {
         // TODO: this is very suboptimal and probably not even correct
-        self.range_set.extend(other.range_set.iter().cloned());
+        self.range_set.extend(other.range_set.iter());
     }
 
     pub fn add_range(&mut self, start: u32, end: u32) {
         self.range_set
-            .extend(interval::IntervalSet::new(start, end))
+            .push(Interval::from_start_and_end(start, end));
     }
 
     pub fn try_from_dwarf_entry(
