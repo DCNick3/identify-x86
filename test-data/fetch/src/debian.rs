@@ -1,5 +1,4 @@
 use crate::model::ExecutableSample;
-use crate::save_sample;
 use anyhow::{bail, Context, Result};
 use async_tar::{Archive, Entry, EntryType};
 use debian_packaging::deb::reader::{BinaryPackageEntry, BinaryPackageReader};
@@ -388,17 +387,20 @@ async fn main_impl() -> Result<()> {
             if let Some(debug_info) = debugs.get(&build_id) {
                 progress.println(format!("EXE {} {}", build_id, filename));
 
-                save_sample(
-                    ExecutableSample::from_debian(executable.get(), debug_info.get())
-                        .with_context(|| {
-                            format!(
-                                "Parsing executable {} in package {}",
-                                filename, package_name
-                            )
-                        })?,
-                )
-                .await
-                .context("Saving executable sample")?;
+                let sample = ExecutableSample::from_debian(executable.get(), debug_info.get())
+                    .with_context(|| {
+                        format!(
+                            "Parsing executable {} in package {}",
+                            filename, package_name
+                        )
+                    })?;
+
+                todo!("Save the sample")
+                // save_sample(
+                //     sample
+                // )
+                // .await
+                // .context("Saving executable sample")?;
             } else {
                 progress.println(format!(
                     "Executable {} in package {} is missing debug info",

@@ -1,3 +1,5 @@
+// TODO: should i delete this?
+#[allow(unused)]
 mod dwarf;
 mod pdb;
 

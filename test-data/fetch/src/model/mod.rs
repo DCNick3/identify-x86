@@ -3,7 +3,7 @@ pub mod interval_set;
 use crate::loader::load_dwarf;
 use crate::loader::load_executable;
 use crate::{dump_pdb, Interval};
-use anyhow::Result;
+use anyhow::{bail, Result};
 use interval_set::IntervalSet;
 use itertools::Itertools;
 use memory_image::MemoryImage;
@@ -90,10 +90,10 @@ pub struct ExecutableSample {
 
 impl ExecutableSample {
     pub fn from_debian(executable: &ElfFile32, debug_info: &ElfFile32) -> Result<Self> {
-        let memory = load_executable(executable)?;
-        let debug = load_dwarf(debug_info)?;
+        let _memory = load_executable(executable)?;
+        let _debug = load_dwarf(debug_info)?;
 
-        // println!("{}", memory.map());
+        // TODO: we should use symbol information to determine the code/data locations
 
         todo!()
     }
@@ -103,6 +103,20 @@ impl ExecutableSample {
         debug_info: &mut PDB<'s, S>,
     ) -> Result<Self> {
         use object::Object;
+
+        if let Some(pdb_info) = executable.pdb_info()? {
+            let provided_guid = debug_info.pdb_information()?.guid;
+            let expected_guid = uuid::Uuid::from_slice(&pdb_info.guid())?;
+            if provided_guid != expected_guid {
+                bail!(
+                    "PDB GUID mismatch: expected {:?}, got {:?}",
+                    expected_guid,
+                    provided_guid
+                );
+            }
+        } else {
+            bail!("PE file does not contain PDB info");
+        }
 
         let memory = load_executable(executable)?;
         let mut classes = dump_pdb(

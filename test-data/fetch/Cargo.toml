@@ -8,6 +8,7 @@ edition = "2021"
 
 anyhow = "1.0.64"
 async-tar = "0.4.2"
+clap = { version = "4.0.8", features = ["derive"] }
 debian-packaging = "0.15.0"
 futures-io = "0.3.24"
 futures-util = "0.3.24"
@@ -24,4 +25,5 @@ regex = "1.6.0"
 smallvec = "1.9.0"
 tokio = { version = "1.21.0", features = ["macros", "rt"] }
 tracing = "0.1.36"
+uuid = "1.1.2"
 yoke = { version = "0.6.1", features = ["derive"] }
