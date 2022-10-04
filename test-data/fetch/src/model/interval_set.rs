@@ -205,7 +205,7 @@ impl<V: num::Integer + Debug + Copy> IntervalSet<V> {
             self.intervals.remove(&k);
         }
 
-        self.check_iter();
+        // self.check_iter();
     }
 
     /// Remove an interval from the set, splitting other intervals if needed
@@ -270,7 +270,7 @@ impl<V: num::Integer + Debug + Copy> IntervalSet<V> {
             self.intervals.remove(&k);
         }
 
-        self.check_iter();
+        // self.check_iter();
     }
 
     pub fn contains(&self, value: V) -> bool {

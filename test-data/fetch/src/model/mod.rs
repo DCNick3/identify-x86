@@ -1,6 +1,6 @@
 pub mod interval_set;
 
-use crate::loader::load_dwarf;
+use crate::loader::dump_elf_symbols;
 use crate::loader::load_executable;
 use crate::{dump_pdb, Interval};
 use anyhow::{bail, Result};
@@ -108,11 +108,36 @@ pub struct ExecutableSample {
 }
 
 impl ExecutableSample {
+    fn from_helper(
+        memory: MemoryImage,
+        mut classes: AddressClasses,
+        source: SampleSource,
+    ) -> Result<Self> {
+        let exe_item = memory
+            .iter()
+            .filter(|v| v.protection.contains(memory_image::Protection::EXECUTE))
+            .exactly_one()
+            .map_err(|_| anyhow::anyhow!("Either no executable section or more than one"))?;
+
+        let exe_range = Interval::from_start_and_end(exe_item.addr, exe_item.end());
+
+        classes.filter_to(exe_range);
+
+        // preserve only the executable section
+        let memory = MemoryImage::from_iter(vec![exe_item].into_iter());
+
+        Ok(ExecutableSample {
+            memory,
+            classes,
+            source: Some(source),
+        })
+    }
+
     pub fn from_debian(
         package_name: &str,
         path: &str,
         executable: &ElfFile32,
-        debug_info: &ElfFile32,
+        debug_info: Option<&ElfFile32>,
     ) -> Result<Self> {
         use object::Object;
 
@@ -122,18 +147,16 @@ impl ExecutableSample {
                 .ok_or_else(|| anyhow::anyhow!("no build id"))?,
         );
 
-        let _source = SampleSource::Debian {
+        let source = SampleSource::Debian {
             package_name: package_name.to_string(),
             path: path.to_string(),
             build_id,
         };
 
-        let _memory = load_executable(executable)?;
-        let _debug = load_dwarf(debug_info)?;
+        let memory = load_executable(executable)?;
+        let classes = dump_elf_symbols(debug_info.unwrap_or(executable))?;
 
-        // TODO: we should use symbol information to determine the code/data locations
-
-        todo!()
+        Self::from_helper(memory, classes, source)
     }
 
     pub fn from_pe<'s, S: std::io::Read + std::io::Seek + std::fmt::Debug + 's>(
@@ -162,29 +185,12 @@ impl ExecutableSample {
         };
 
         let memory = load_executable(executable)?;
-        let mut classes = dump_pdb(
+        let classes = dump_pdb(
             executable.relative_address_base().try_into().unwrap(),
             debug_info,
         )?;
 
-        let exe_item = memory
-            .iter()
-            .filter(|v| v.protection.contains(memory_image::Protection::EXECUTE))
-            .exactly_one()
-            .map_err(|_| anyhow::anyhow!("Either no executable section or more than one"))?;
-
-        let exe_range = Interval::from_start_and_end(exe_item.addr, exe_item.end());
-
-        classes.filter_to(exe_range);
-
-        // preserve only the executable section
-        let memory = MemoryImage::from_iter(vec![exe_item].into_iter());
-
-        Ok(ExecutableSample {
-            memory,
-            classes,
-            source: Some(source),
-        })
+        Self::from_helper(memory, classes, source)
     }
 
     pub fn coverage(&self) -> (u32, u32) {
@@ -197,6 +203,11 @@ impl ExecutableSample {
             .try_into()
             .unwrap();
         (covered, total)
+    }
+
+    pub fn coverage_float(&self) -> f64 {
+        let (covered, total) = self.coverage();
+        covered as f64 / total as f64
     }
 
     pub fn serialize_into(&self, output: &mut impl Write) -> Result<()> {

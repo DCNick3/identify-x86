@@ -674,9 +674,7 @@ checksum = "3ee2393c4a91429dffb4bedf19f4d6abf27d8a732c8ce4980305d782e5426d57"
 
 [[package]]
 name = "debian-packaging"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d50124ea980a0fe1f25dde35018e1f449fab00a5d0b452feb78378bb4a95f007"
+version = "0.16.0-pre"
 dependencies = [
  "ar",
  "async-compression",
@@ -701,13 +699,13 @@ dependencies = [
  "serde",
  "sha-1 0.10.0",
  "sha2 0.10.5",
+ "simple-file-manifest",
  "smallvec",
  "strum",
  "strum_macros",
  "tar",
  "thiserror",
  "tokio",
- "tugger-file-manifest",
  "url",
  "xz2",
  "zstd",
@@ -2225,6 +2223,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f0ea32af43239f0d353a7dd75a22d94c329c8cdaafdcb4c1c1335aa10c298a4a"
 
 [[package]]
+name = "simple-file-manifest"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5dd19be0257552dd56d1bb6946f89f193c6e5b9f13cc9327c4bc84a357507c74"
+
+[[package]]
 name = "slab"
 version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2546,12 +2550,6 @@ name = "try-lock"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "59547bce71d9c38b83d9c0e92b6066c4253371f15005def0c30d9657f50c7642"
-
-[[package]]
-name = "tugger-file-manifest"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4eb47a7c6d38b6994490284e7572edbe226364e85cf1ab18525cfabeb0ea70be"
 
 [[package]]
 name = "twofish"

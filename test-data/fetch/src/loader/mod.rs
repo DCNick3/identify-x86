@@ -1,6 +1,4 @@
-// TODO: should i delete this?
-#[allow(unused)]
-mod dwarf;
+mod elf_symbols;
 mod pdb;
 
 use anyhow::Result;
@@ -10,7 +8,7 @@ use object::pe::{IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE}
 use object::{Object, ObjectSegment, SegmentFlags};
 
 pub use self::pdb::dump_pdb;
-pub use dwarf::load_dwarf;
+pub use elf_symbols::dump_elf_symbols;
 
 fn flags_to_protection(flags: SegmentFlags) -> Protection {
     match flags {

@@ -7,3 +7,7 @@ members = [
 
 [profile.dev.package."*"]
 opt-level = 2
+
+[patch.crates-io]
+# To add support for older debian versions
+debian-packaging = { path = "/home/dcnick3/git_cloned/linux-packaging-rs/debian-packaging" }
