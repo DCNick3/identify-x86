@@ -1,6 +1,8 @@
+use serde::de::SeqAccess;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 use std::mem;
 
 /// Represents a half-interval [start, end)
@@ -53,6 +55,18 @@ impl<V: num::Integer + Copy> Interval<V> {
     }
 }
 
+impl<V: num::Integer + Copy> From<(V, V)> for Interval<V> {
+    fn from((start, end): (V, V)) -> Self {
+        Self::from_start_and_end(start, end)
+    }
+}
+
+impl<V: num::Integer + Copy> Into<(V, V)> for Interval<V> {
+    fn into(self) -> (V, V) {
+        (self.start, self.end)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SetNode {
     Start,
@@ -64,9 +78,64 @@ enum SetNode {
 /// Invariant: no two intervals in the set are intersecting.
 /// Stores the actual intervals as a balanced binary tree of start and end points.
 /// See https://stackoverflow.com/a/1983402/14747973 or idk
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IntervalSet<V: num::Integer + Copy> {
     intervals: BTreeMap<V, SetNode>,
+}
+
+impl<V: num::Integer + Debug + Copy + Serialize> Serialize for IntervalSet<V> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        use serde::ser::SerializeSeq;
+        let mut seq = serializer.serialize_seq(Some(self.intervals.len() / 2))?;
+        for e in self.iter() {
+            let e: (V, V) = e.into();
+            seq.serialize_element(&e)?;
+        }
+        seq.end()
+    }
+}
+
+struct IntervalSetVisitor<'de, V: num::Integer + Debug + Copy + Deserialize<'de>> {
+    phantom: std::marker::PhantomData<&'de V>,
+}
+
+impl<'de, V: num::Integer + Debug + Copy + Deserialize<'de>> serde::de::Visitor<'de>
+    for IntervalSetVisitor<'de, V>
+{
+    type Value = IntervalSet<V>;
+
+    fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+        formatter.write_str("a sequence of intervals")
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        let mut res = IntervalSet::new();
+
+        while let Some(interval) = seq.next_element::<(V, V)>()? {
+            res.push(interval.into());
+        }
+
+        Ok(res)
+    }
+}
+
+impl<'de, V: num::Integer + Debug + Copy + Deserialize<'de> + 'de> Deserialize<'de>
+    for IntervalSet<V>
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_seq(IntervalSetVisitor {
+            phantom: std::marker::PhantomData,
+        })
+    }
 }
 
 impl<V: num::Integer + Debug + Copy> IntervalSet<V> {
@@ -262,6 +331,11 @@ impl<'a, V: num::Integer + Copy> Iterator for IntervalSetIter<'a, V> {
             }
         }
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let (lo, hi) = self.inner.size_hint();
+        (lo / 2, hi.map(|v| v / 2))
+    }
 }
 
 #[cfg(test)]
@@ -362,5 +436,27 @@ mod test {
             set.iter().collect::<Vec<_>>(),
             vec![Interval::from_start_and_len(1, 2)]
         );
+    }
+
+    #[test]
+    pub fn test_interval_set_serde() {
+        use super::{Interval, IntervalSet};
+        use serde_json;
+
+        let mut set = IntervalSet::<u32>::new();
+        set.push(Interval::from_start_and_len(1, 2));
+        set.push(Interval::from_start_and_len(3, 3));
+        let json = serde_json::to_string(&set).unwrap();
+        assert_eq!(json, "[[1,6]]");
+        let set2: IntervalSet<u32> = serde_json::from_str(&json).unwrap();
+        assert_eq!(set, set2);
+
+        let mut set = IntervalSet::<u32>::new();
+        set.push(Interval::from_start_and_len(4, 5));
+        set.push(Interval::from_start_and_len(1, 1));
+        let json = serde_json::to_string(&set).unwrap();
+        assert_eq!(json, "[[1,2],[4,9]]");
+        let set2: IntervalSet<u32> = serde_json::from_str(&json).unwrap();
+        assert_eq!(set, set2);
     }
 }

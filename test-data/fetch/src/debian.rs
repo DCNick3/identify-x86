@@ -387,13 +387,18 @@ async fn main_impl() -> Result<()> {
             if let Some(debug_info) = debugs.get(&build_id) {
                 progress.println(format!("EXE {} {}", build_id, filename));
 
-                let sample = ExecutableSample::from_debian(executable.get(), debug_info.get())
-                    .with_context(|| {
-                        format!(
-                            "Parsing executable {} in package {}",
-                            filename, package_name
-                        )
-                    })?;
+                let sample = ExecutableSample::from_debian(
+                    package_name,
+                    &filename,
+                    executable.get(),
+                    debug_info.get(),
+                )
+                .with_context(|| {
+                    format!(
+                        "Parsing executable {} in package {}",
+                        filename, package_name
+                    )
+                })?;
 
                 todo!("Save the sample")
                 // save_sample(

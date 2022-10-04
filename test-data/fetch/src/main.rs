@@ -10,7 +10,8 @@ use crate::model::ExecutableSample;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use object::read::pe::PeFile32;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use tracing::{debug, error, info};
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -27,6 +28,15 @@ enum Action {
 struct DumpPdb {
     exe: PathBuf,
     pdb: PathBuf,
+    #[clap(short, long)]
+    output: PathBuf,
+}
+
+fn write_sample(sample: &ExecutableSample, path: &Path) -> Result<()> {
+    info!("Writing sample to {}", path.display());
+    let mut file = std::fs::File::create(path)?;
+    sample.serialize_into(&mut file)?;
+    Ok(())
 }
 
 async fn action_dump_pdb(args: DumpPdb) -> Result<()> {
@@ -37,21 +47,22 @@ async fn action_dump_pdb(args: DumpPdb) -> Result<()> {
     let mut pdb = pdb::PDB::open(pdb)?;
     let info = pdb.pdb_information()?;
 
-    println!("PDB GUID: {}", info.guid);
+    info!("PDB GUID: {}", info.guid);
 
     let sample = ExecutableSample::from_pe(&pe_file, &mut pdb)?;
 
-    println!("{}", sample.classes.dump());
+    debug!("{}", sample.classes.dump());
 
     let (covered, total) = sample.coverage();
 
-    println!(
+    info!(
         "Coverage: {}/{} ({:.2}%)",
         covered,
         total,
         100.0 * covered as f64 / total as f64
     );
 
+    write_sample(&sample, &args.output)?;
     Ok(())
 }
 
@@ -65,8 +76,10 @@ async fn main_impl() -> Result<()> {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
+    tracing_subscriber::fmt::init();
+
     main_impl().await.unwrap_or_else(|e| {
-        eprintln!("Error occurred: {:?}", e);
+        error!("Error occurred: {:?}", e);
         std::process::exit(1);
     });
 }
