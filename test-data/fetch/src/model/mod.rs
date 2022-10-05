@@ -3,7 +3,7 @@ pub mod interval_set;
 use crate::loader::dump_elf_symbols;
 use crate::loader::load_executable;
 use crate::{dump_pdb, Interval};
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use interval_set::IntervalSet;
 use itertools::Itertools;
 use memory_image::MemoryImage;
@@ -71,16 +71,34 @@ impl AddressClasses {
         data.sort();
 
         let mut result = String::new();
+        let mut prev = None;
         for (interval, kind) in data {
             use std::fmt::Write;
+
+            if let Some(prev) = prev {
+                let gap = interval.start() - prev;
+                if gap > 0 {
+                    writeln!(
+                        result,
+                        "0x{:08x} - 0x{:08x} (0x{:04x}) gap",
+                        prev,
+                        interval.start(),
+                        gap
+                    )
+                    .unwrap();
+                }
+            }
+
             writeln!(
                 result,
-                "0x{:08x} - 0x{:08x} {}",
+                "0x{:08x} - 0x{:08x} (0x{:04x}) {}",
                 interval.start(),
                 interval.end(),
+                interval.len(),
                 kind
             )
             .unwrap();
+            prev = Some(interval.end());
         }
 
         result
@@ -139,7 +157,7 @@ impl ExecutableSample {
         executable: &ElfFile32,
         debug_info: Option<&ElfFile32>,
     ) -> Result<Self> {
-        use object::Object;
+        use object::{Object, ObjectSection};
 
         let build_id = Vec::from(
             executable
@@ -154,9 +172,23 @@ impl ExecutableSample {
         };
 
         let memory = load_executable(executable)?;
-        let classes = dump_elf_symbols(debug_info.unwrap_or(executable))?;
+        let mut classes = dump_elf_symbols(&memory, debug_info.unwrap_or(executable))?;
 
-        Self::from_helper(memory, classes, source)
+        // we expect a "normal" gcc-produced binary, so we can expect that all the interesting code will be in .text
+        let text = executable
+            .section_by_name(".text")
+            .ok_or_else(|| anyhow!("no .text section"))?;
+
+        // construct memory image only from the .text section
+        let text_memory =
+            MemoryImage::from_code_region(text.address() as u32, text.data().unwrap());
+
+        classes.filter_to(Interval::from_start_and_len(
+            text.address().try_into().unwrap(),
+            text.size().try_into().unwrap(),
+        ));
+
+        Self::from_helper(text_memory, classes, source)
     }
 
     pub fn from_pe<'s, S: std::io::Read + std::io::Seek + std::fmt::Debug + 's>(

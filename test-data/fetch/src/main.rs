@@ -24,6 +24,7 @@ struct Args {
 enum Action {
     DumpPdb(DumpPdb),
     DumpDebian(DumpDebian),
+    ShowSample(ShowSample),
 }
 
 #[derive(Debug, clap::Args)]
@@ -77,6 +78,13 @@ struct DumpDebian {
     output_directory: PathBuf,
     #[clap(flatten)]
     config: DebianConfigOpt,
+}
+
+#[derive(Debug, clap::Args)]
+struct ShowSample {
+    sample_path: PathBuf,
+    #[clap(short, long)]
+    dump_ranges: bool,
 }
 
 fn write_sample(sample: &ExecutableSample, path: impl AsRef<Path>) -> Result<()> {
@@ -157,12 +165,36 @@ async fn action_dump_debian(args: DumpDebian) -> Result<()> {
     Ok(())
 }
 
+async fn action_show_sample(args: ShowSample) -> Result<()> {
+    let sample = ExecutableSample::deserialize_from(&mut std::fs::File::open(&args.sample_path)?)?;
+
+    println!("Memory map:");
+    println!("{}", sample.memory.map());
+
+    if args.dump_ranges {
+        println!("Ranges:");
+        println!("{}", sample.classes.dump());
+    }
+
+    let coverage = sample.coverage();
+    let coverage_float = sample.coverage_float();
+    println!(
+        "Coverage: {}/{} ({:.2}%)",
+        coverage.0,
+        coverage.1,
+        coverage_float * 100.0
+    );
+
+    Ok(())
+}
+
 async fn main_impl() -> Result<()> {
     let args = Args::parse();
 
     match args.action {
         Action::DumpPdb(args) => action_dump_pdb(args).await,
         Action::DumpDebian(args) => action_dump_debian(args).await,
+        Action::ShowSample(args) => action_show_sample(args).await,
     }
 }
 
