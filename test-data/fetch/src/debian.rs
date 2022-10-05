@@ -1,11 +1,12 @@
 use crate::model::ExecutableSample;
-use anyhow::{bail, Context, Result};
+use crate::Interval;
+use anyhow::{anyhow, bail, Context, Result};
 use async_tar::{Archive, Entry, EntryType};
 use debian_packaging::deb::reader::{BinaryPackageEntry, BinaryPackageReader};
 use debian_packaging::repository::{BinaryPackageFetch, ReleaseReader};
 use futures_util::{AsyncRead, AsyncReadExt, StreamExt};
 use object::read::elf::ElfFile32;
-use object::{Architecture, Object};
+use object::{Architecture, Object, ObjectSection};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::{BTreeMap, HashSet};
@@ -38,7 +39,7 @@ impl Default for DebianConfig {
 }
 
 async fn find_packages<'a>(
-    config: &DebianConfig,
+    config: &'a DebianConfig,
     release_reader: &'a dyn ReleaseReader,
     names: Arc<HashSet<String>>,
 ) -> Result<BTreeMap<String, BinaryPackageFetch<'a>>> {
@@ -318,6 +319,14 @@ where
     S: Fn(&str, &str, ExecutableSample) -> F,
     F: Future<Output = Result<()>>,
 {
+    let packages = Arc::new(
+        package_names
+            .into_iter()
+            .map(|v| v.as_ref().to_string())
+            .collect::<HashSet<_>>(),
+    );
+
+    info!("Getting debian packages {:?}", packages);
     let repo_reader = debian_packaging::repository::reader_from_str(&config.mirror)
         .context("Getting a RepositoryRootReader")?;
 
@@ -344,13 +353,6 @@ where
         ),
         None => None,
     };
-
-    let packages = Arc::new(
-        package_names
-            .into_iter()
-            .map(|v| v.as_ref().to_string())
-            .collect::<HashSet<_>>(),
-    );
 
     let time = std::time::Instant::now();
 
@@ -453,9 +455,26 @@ where
                 )
             })?;
 
-            let coverage = sample.coverage();
+            // executable.
 
-            if sample.coverage_float() > 0.5 {
+            // compute .text section coverage to filter out executables that have incomplete debug info
+            // for gcc-compiled linux binaries we expect > 95% coverage
+            let (covered, total) = {
+                use object::ObjectSection;
+                let text_region = executable
+                    .get()
+                    .section_by_name(".text")
+                    .ok_or_else(|| anyhow!("No .text section"))?;
+
+                let address = text_region.address().try_into().unwrap();
+                let size = text_region.size().try_into().unwrap();
+
+                let mut classes = sample.classes.clone();
+                classes.filter_to(Interval::from_start_and_len(address, size));
+                (classes.coverage(), size)
+            };
+
+            if (covered as f64 / total as f64) > 0.75 {
                 save_sample(package_name, &filename, sample)
                     .await
                     .context("Saving executable sample")?;
@@ -465,8 +484,8 @@ where
                     filename,
                     package_name,
                     debug_info.is_some(),
-                    coverage.0,
-                    coverage.1
+                    covered,
+                    total
                 );
             }
         }

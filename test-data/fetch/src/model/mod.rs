@@ -3,9 +3,8 @@ pub mod interval_set;
 use crate::loader::dump_elf_symbols;
 use crate::loader::load_executable;
 use crate::{dump_pdb, Interval};
-use anyhow::{anyhow, bail, Result};
+use anyhow::{bail, Result};
 use interval_set::IntervalSet;
-use itertools::Itertools;
 use memory_image::MemoryImage;
 use object::read::elf::ElfFile32;
 use object::read::pe::PeFile32;
@@ -54,6 +53,7 @@ impl AddressClasses {
 
     pub fn coverage(&self) -> u32 {
         // TODO: handle interval overlaps
+        // ideally we should not allow them
         self.true_instructions
             .iter()
             .map(|v| v.len())
@@ -128,22 +128,9 @@ pub struct ExecutableSample {
 impl ExecutableSample {
     fn from_helper(
         memory: MemoryImage,
-        mut classes: AddressClasses,
+        classes: AddressClasses,
         source: SampleSource,
     ) -> Result<Self> {
-        let exe_item = memory
-            .iter()
-            .filter(|v| v.protection.contains(memory_image::Protection::EXECUTE))
-            .exactly_one()
-            .map_err(|_| anyhow::anyhow!("Either no executable section or more than one"))?;
-
-        let exe_range = Interval::from_start_and_end(exe_item.addr, exe_item.end());
-
-        classes.filter_to(exe_range);
-
-        // preserve only the executable section
-        let memory = MemoryImage::from_iter(vec![exe_item].into_iter());
-
         Ok(ExecutableSample {
             memory,
             classes,
@@ -157,7 +144,7 @@ impl ExecutableSample {
         executable: &ElfFile32,
         debug_info: Option<&ElfFile32>,
     ) -> Result<Self> {
-        use object::{Object, ObjectSection};
+        use object::Object;
 
         let build_id = Vec::from(
             executable
@@ -172,23 +159,9 @@ impl ExecutableSample {
         };
 
         let memory = load_executable(executable)?;
-        let mut classes = dump_elf_symbols(&memory, debug_info.unwrap_or(executable))?;
+        let classes = dump_elf_symbols(&memory, debug_info.unwrap_or(executable))?;
 
-        // we expect a "normal" gcc-produced binary, so we can expect that all the interesting code will be in .text
-        let text = executable
-            .section_by_name(".text")
-            .ok_or_else(|| anyhow!("no .text section"))?;
-
-        // construct memory image only from the .text section
-        let text_memory =
-            MemoryImage::from_code_region(text.address() as u32, text.data().unwrap());
-
-        classes.filter_to(Interval::from_start_and_len(
-            text.address().try_into().unwrap(),
-            text.size().try_into().unwrap(),
-        ));
-
-        Self::from_helper(text_memory, classes, source)
+        Self::from_helper(memory, classes, source)
     }
 
     pub fn from_pe<'s, S: std::io::Read + std::io::Seek + std::fmt::Debug + 's>(
@@ -199,7 +172,7 @@ impl ExecutableSample {
 
         let source = if let Some(pdb_info) = executable.pdb_info()? {
             let provided_guid = debug_info.pdb_information()?.guid;
-            let expected_guid = uuid::Uuid::from_slice_le(&pdb_info.guid())?;
+            let expected_guid = Uuid::from_slice_le(&pdb_info.guid())?;
             if provided_guid != expected_guid {
                 bail!(
                     "PDB GUID mismatch: expected {:?}, got {:?}",
