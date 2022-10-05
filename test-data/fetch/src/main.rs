@@ -49,6 +49,8 @@ mod debian_config {
         no_debug_mirror: bool,
         #[clap(long, default_value_t = ("buster".to_string()))]
         distribution: String,
+        #[clap(long)]
+        debug_distribution: Option<String>,
         #[clap(long, default_value_t = ("i386".to_string()))]
         arch: String,
     }
@@ -62,6 +64,9 @@ mod debian_config {
                 } else {
                     Some(opt.debug_mirror)
                 },
+                debug_distribution: opt
+                    .debug_distribution
+                    .unwrap_or_else(|| format!("{}-debug", &opt.distribution)),
                 distribution: opt.distribution,
                 arch: opt.arch,
             }

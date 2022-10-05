@@ -24,6 +24,7 @@ pub struct DebianConfig {
     /// See [https://wiki.debian.org/AutomaticDebugPackages]
     pub debug_mirror: Option<String>,
     pub distribution: String,
+    pub debug_distribution: String,
     pub arch: String,
 }
 
@@ -33,6 +34,7 @@ impl Default for DebianConfig {
             mirror: "http://deb.debian.org/debian".to_string(),
             debug_mirror: Some("http://debug.mirrors.debian.org/debian-debug".to_string()),
             distribution: "buster".to_string(),
+            debug_distribution: "buster-debug".to_string(),
             arch: "i386".to_string(),
         }
     }
@@ -347,7 +349,7 @@ where
     let debug_release_reader = match debug_repo_reader.as_ref() {
         Some(debug_repo_reader) => Some(
             debug_repo_reader
-                .release_reader(&format!("{}-debug", &config.distribution))
+                .release_reader(&config.debug_distribution)
                 .await
                 .context("Getting a ReleaseReader for debug packages")?,
         ),
