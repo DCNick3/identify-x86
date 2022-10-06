@@ -77,6 +77,19 @@ static KNOWN_FUNCTIONS: Lazy<HashMap<&str, Regex>> = Lazy::new(|| {
                 \x83\xEC\x0C \x52 \xFF\xD0
                 \x83\xC4\x10 \x8B\x5D\xFC \xC9 \xC3
             |
+                # ubuntu xenial, gcc 5.4.0, noPIC
+                \xB8.... \x2D.... \x83\xF8\x06 \x76\x1A
+                \xB8.... \x85\xC0 \x74\x11 \x55
+                \x89\xE5 \x83\xEC\x14 \x68.... \xFF\xD0
+                \x83\xC4\x10 \xC9 \xF3\xC3
+            |
+                # ubuntu xenial, gcc 5.4.0, PIC
+                \xE8....
+                \x81\xC2.... \x8D\x8A.... \x8D\x82.... \x29\xC8 \x83\xF8\x06 \x76\x17
+                ...... \x85\xC0 \x74\x0D
+                \x55 \x89\xE5 \x83\xEC\x14 \x51 \xFF\xD0
+                \x83\xC4\x10 \xC9 \xF3\xC3
+            |
                 # debian buster, gcc 8.3.0, noPIC
                 \xB8.... \x3D.... \x74\x24
                 \xB8.... \x85\xC0 \x74\x1B
@@ -114,6 +127,23 @@ static KNOWN_FUNCTIONS: Lazy<HashMap<&str, Regex>> = Lazy::new(|| {
                 \xC1\xE9\x1F \x01\xC8 \xD1\xF8 \x74\x14
                 \x8B\x8B.... \x85\xC9 \x74\x0A
                 \x83\xEC\x08 \x50 \x52 \xFF\xD1
+                \x83\xC4\x10 \x8B\x5D\xFC \xC9 \xC3
+            |
+                # ubuntu xenial, gcc 5.4.0, noPIC
+                \xB8.... \x8B\x10 \x85\xD2 \x75\x05
+                \xEB.
+                # padding
+                \x8D\x76\x00
+                \xBA.... \x85\xD2 \x74\xF2
+                \x55 \x89\xE5 \x83\xEC\x14 \x50 \xFF\xD2
+                \x83\xC4\x10 \xC9 \xE9....
+            |
+                # ubuntu xenial, gcc 5.4.0, PIC
+                \xE8....
+                \x81\xC2.... \x55 \x8D\x8A.... \x8D\x82.... \x89\xE5 \x53 \x29\xC8
+                \xC1\xF8\x02 \x83\xEC\x04 \x89\xC3 \xC1\xEB\x1F \x01\xD8 \xD1\xF8 \x74\x14
+                ...... \x85\xD2 \x74\x0A
+                \x83\xEC\x08 \x50 \x51 \xFF\xD2
                 \x83\xC4\x10 \x8B\x5D\xFC \xC9 \xC3
             |
                 # debian buster, gcc 8.3.0, noPIC
@@ -177,6 +207,26 @@ static KNOWN_FUNCTIONS: Lazy<HashMap<&str, Regex>> = Lazy::new(|| {
                 \x8B\x93.... \x85\xD2 \x74\xE4
                 \x83\xEC\x0C \x50 \xFF\xD2
                 \x83\xC4\x10 \xEB.
+            |
+                # ubuntu xenial, gcc 5.4.0, noPIC
+                \xB8.... \x8B\x10 \x85\xD2 \x75\x05
+                \xEB.
+                # padding 
+                \x8D\x76\x00
+                \xBA.... \x85\xD2 \x74\xF2
+                \x55 \x89\xE5 \x83\xEC\x14 \x50 \xFF\xD2
+                \x83\xC4\x10 \xC9 \xE9....
+            |
+                # ubuntu xenial, gcc 5.4.0, PIC
+                \xE8....
+                \x81\xC2.... \x8D\x82.... \x8B\x08 \x85\xC9 \x75\x09
+                \xE9....
+                # padding
+                \x8D\x74\x26\x00
+                ......
+                \x85\xD2 \x74\xED
+                \x55 \x89\xE5 \x83\xEC\x14 \x50 \xFF\xD2
+                \x83\xC4\x10 \xC9 \xE9....
             |
                 # debian buster, gcc 8.3.0, noPIC
                 \xEB.
