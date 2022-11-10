@@ -1,3 +1,5 @@
+extern crate core;
+
 // TODO: write a CLI entrypoint for this
 #[allow(unused)]
 mod debian;
@@ -10,6 +12,7 @@ use crate::model::ExecutableSample;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use object::read::pe::PeFile32;
+use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{debug, error, info};
@@ -25,6 +28,8 @@ enum Action {
     DumpPdb(DumpPdb),
     DumpDebian(DumpDebian),
     ShowSample(ShowSample),
+    MakeSuperset(MakeSuperset),
+    PythonCodegen,
 }
 
 #[derive(Debug, clap::Args)]
@@ -90,6 +95,12 @@ struct ShowSample {
     sample_path: PathBuf,
     #[clap(short, long)]
     dump_ranges: bool,
+}
+
+#[derive(Debug, clap::Args)]
+struct MakeSuperset {
+    sample_path: PathBuf,
+    output_path: PathBuf,
 }
 
 fn write_sample(sample: &ExecutableSample, path: impl AsRef<Path>) -> Result<()> {
@@ -193,6 +204,39 @@ async fn action_show_sample(args: ShowSample) -> Result<()> {
     Ok(())
 }
 
+async fn action_make_superset(args: MakeSuperset) -> Result<()> {
+    let sample = ExecutableSample::deserialize_from(&mut std::fs::File::open(&args.sample_path)?)?;
+    let superset = sample.into_superset();
+
+    // TODO: serde_pickle is kinda slow, wanna find something else
+    let file = std::fs::File::create(&args.output_path)?;
+    let file = BufWriter::new(file);
+    superset.to_parquet(file)?;
+
+    Ok(())
+}
+
+async fn action_python_codegen() -> Result<()> {
+    // let mut tracer = serde_reflection::Tracer::new(serde_reflection::TracerConfig::default());
+    //
+    // tracer
+    //     .trace_simple_type::<SupersetSample>()
+    //     .map_err(|e| anyhow!("Tracing superset sample: {}", e))?;
+    // let registry = tracer
+    //     .registry()
+    //     .map_err(|e| anyhow!("Tracing registry: {}", e))?;
+    //
+    // let mut source = Vec::new();
+    // let config = serde_generate::CodeGeneratorConfig::new("identify_x86_data".to_string())
+    //     .with_encodings(vec![serde_generate::Encoding::Bincode]);
+    // let generator = serde_generate::python3::CodeGenerator::new(&config);
+    // generator.output(&mut source, &registry)?;
+    //
+    // println!("{}", String::from_utf8_lossy(&source));
+
+    Ok(())
+}
+
 async fn main_impl() -> Result<()> {
     let args = Args::parse();
 
@@ -200,6 +244,8 @@ async fn main_impl() -> Result<()> {
         Action::DumpPdb(args) => action_dump_pdb(args).await,
         Action::DumpDebian(args) => action_dump_debian(args).await,
         Action::ShowSample(args) => action_show_sample(args).await,
+        Action::MakeSuperset(args) => action_make_superset(args).await,
+        Action::PythonCodegen => action_python_codegen().await,
     }
 }
 
