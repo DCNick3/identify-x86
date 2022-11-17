@@ -1,3 +1,10 @@
 *.superset
+*.graph
+*.graph.zst
+*.pt
+superset/
+data/
+
+.ipynb_checkpoints/
 lightning_logs
 __pycache__
