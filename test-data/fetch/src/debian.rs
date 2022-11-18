@@ -6,7 +6,7 @@ use debian_packaging::deb::reader::{BinaryPackageEntry, BinaryPackageReader};
 use debian_packaging::repository::{BinaryPackageFetch, ReleaseReader};
 use futures_util::{AsyncRead, AsyncReadExt, StreamExt};
 use object::read::elf::ElfFile32;
-use object::{Architecture, Object, ObjectSection};
+use object::{Architecture, Object};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::{BTreeMap, HashSet};

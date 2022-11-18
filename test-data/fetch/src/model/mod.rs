@@ -18,6 +18,7 @@ use parquet_derive::ParquetRecordWriter;
 use pdb::PDB;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::fmt::{Display, Formatter};
 use std::io::Write;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -114,6 +115,21 @@ impl AddressClasses {
     }
 }
 
+#[derive(Serialize, Deserialize, Eq, PartialEq, Debug, Copy, Clone)]
+pub enum ByteWeightPlatform {
+    PeX86,
+    ElfX86,
+}
+
+impl Display for ByteWeightPlatform {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ByteWeightPlatform::PeX86 => write!(f, "pe-x86"),
+            ByteWeightPlatform::ElfX86 => write!(f, "elf-x86"),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Eq, PartialEq, Debug, Clone)]
 pub enum SampleSource {
     Pdb {
@@ -125,6 +141,10 @@ pub enum SampleSource {
         path: String,
         build_id: Vec<u8>,
     },
+    ByteWeight {
+        platform: ByteWeightPlatform,
+        name: String,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -135,11 +155,7 @@ pub struct ExecutableSample {
 }
 
 impl ExecutableSample {
-    fn from_helper(
-        memory: MemoryImage,
-        classes: AddressClasses,
-        source: SampleSource,
-    ) -> Result<Self> {
+    pub fn new(memory: MemoryImage, classes: AddressClasses, source: SampleSource) -> Result<Self> {
         Ok(ExecutableSample {
             memory,
             classes,
@@ -170,10 +186,10 @@ impl ExecutableSample {
         let memory = load_executable(executable)?;
         let classes = dump_elf_symbols(&memory, debug_info.unwrap_or(executable))?;
 
-        Self::from_helper(memory, classes, source)
+        Self::new(memory, classes, source)
     }
 
-    pub fn from_pe<'s, S: std::io::Read + std::io::Seek + std::fmt::Debug + 's>(
+    pub fn from_pe_and_pdb<'s, S: std::io::Read + std::io::Seek + std::fmt::Debug + 's>(
         executable: &PeFile32,
         debug_info: &mut PDB<'s, S>,
     ) -> Result<Self> {
@@ -204,7 +220,7 @@ impl ExecutableSample {
             debug_info,
         )?;
 
-        Self::from_helper(memory, classes, source)
+        Self::new(memory, classes, source)
     }
 
     pub fn coverage(&self) -> (u32, u32) {

@@ -1,7 +1,7 @@
 extern crate core;
 
 // TODO: write a CLI entrypoint for this
-#[allow(unused)]
+mod byteweight;
 mod debian;
 mod loader;
 mod model;
@@ -27,17 +27,10 @@ struct Args {
 enum Action {
     DumpPdb(DumpPdb),
     DumpDebian(DumpDebian),
+    DumpByteweight(DumpByteweight),
     ShowSample(ShowSample),
     MakeSuperset(MakeSuperset),
     PythonCodegen,
-}
-
-#[derive(Debug, clap::Args)]
-struct DumpPdb {
-    exe: PathBuf,
-    pdb: Option<PathBuf>,
-    #[clap(short, long)]
-    output: Option<PathBuf>,
 }
 
 #[allow(unused_parens)]
@@ -79,8 +72,15 @@ mod debian_config {
     }
 }
 
-use debian_config::DebianConfigOpt;
+#[derive(Debug, clap::Args)]
+struct DumpPdb {
+    exe: PathBuf,
+    pdb: Option<PathBuf>,
+    #[clap(short, long)]
+    output: Option<PathBuf>,
+}
 
+use debian_config::DebianConfigOpt;
 #[derive(Debug, clap::Args)]
 struct DumpDebian {
     package_names: Vec<String>,
@@ -88,6 +88,13 @@ struct DumpDebian {
     output_directory: PathBuf,
     #[clap(flatten)]
     config: DebianConfigOpt,
+}
+
+#[derive(Debug, clap::Args)]
+struct DumpByteweight {
+    experiments_path: PathBuf,
+    #[clap(short, long)]
+    output_directory: PathBuf,
 }
 
 #[derive(Debug, clap::Args)]
@@ -121,7 +128,7 @@ async fn action_dump_pdb(args: DumpPdb) -> Result<()> {
 
     info!("PDB GUID: {}", info.guid);
 
-    let sample = ExecutableSample::from_pe(&pe_file, &mut pdb)?;
+    let sample = ExecutableSample::from_pe_and_pdb(&pe_file, &mut pdb)?;
 
     debug!("{}", sample.classes.dump());
 
@@ -177,6 +184,26 @@ async fn action_dump_debian(args: DumpDebian) -> Result<()> {
     )
     .await
     .context("Dumping debian packages")?;
+
+    Ok(())
+}
+
+async fn action_dump_byteweight(args: DumpByteweight) -> Result<()> {
+    std::fs::create_dir_all(&args.output_directory).context("Creating output directory")?;
+
+    // let output_directory = Arc::new(args.output_directory.clone());
+    byteweight::dump_byteweight(&args.experiments_path, |platform, name, sample| {
+        let path = args
+            .output_directory
+            .join(format!("{}", platform))
+            .join(name + ".sample");
+
+        std::fs::create_dir_all(path.parent().unwrap()).context("Creating output directory")?;
+
+        write_sample(&sample, path).context("Writing sample")?;
+        Ok(())
+    })
+    .context("Dumping byteweight packages")?;
 
     Ok(())
 }
@@ -243,6 +270,7 @@ async fn main_impl() -> Result<()> {
     match args.action {
         Action::DumpPdb(args) => action_dump_pdb(args).await,
         Action::DumpDebian(args) => action_dump_debian(args).await,
+        Action::DumpByteweight(args) => action_dump_byteweight(args).await,
         Action::ShowSample(args) => action_show_sample(args).await,
         Action::MakeSuperset(args) => action_make_superset(args).await,
         Action::PythonCodegen => action_python_codegen().await,

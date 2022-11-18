@@ -59,6 +59,13 @@ static KNOWN_FUNCTIONS: Lazy<HashMap<&str, Regex>> = Lazy::new(|| {
             ("__x86.get_pc_thunk.bp", r#"\x8B\x2C\x24\xC3"#),
             ("__x86.get_pc_thunk.si", r#"\x8B\x34\x24\xC3"#),
             ("__x86.get_pc_thunk.di", r#"\x8B\x3C\x24\xC3"#),
+            ("__i686.get_pc_thunk.ax", r#"\x8B\x04\x24\xC3"#),
+            ("__i686.get_pc_thunk.bx", r#"\x8B\x1C\x24\xC3"#),
+            ("__i686.get_pc_thunk.cx", r#"\x8B\x0C\x24\xC3"#),
+            ("__i686.get_pc_thunk.dx", r#"\x8B\x14\x24\xC3"#),
+            ("__i686.get_pc_thunk.bp", r#"\x8B\x2C\x24\xC3"#),
+            ("__i686.get_pc_thunk.si", r#"\x8B\x34\x24\xC3"#),
+            ("__i686.get_pc_thunk.di", r#"\x8B\x3C\x24\xC3"#),
             // first - non-PIC version, then the PIC one
             (
                 "deregister_tm_clones",
@@ -109,6 +116,12 @@ static KNOWN_FUNCTIONS: Lazy<HashMap<&str, Regex>> = Lazy::new(|| {
                 # padding
                 \x8D\x74\x26\x00\x90
                 \xF3?\xC3
+            |
+                # dunno versions, PIC, the ones used in ByteWeight
+                \xB8.... \x2D.... \x83\xF8\x06 \x77\x02
+                \xF3\xC3
+                \xB8\x00\x00\x00\x00 \x85\xC0 \x74\xF5
+                \x55 \x89\xE5 \x83\xEC\x18 \xC7\x04\x24.... \xFF\xD0 \xC9 \xC3
             "#,
             ),
             (
@@ -162,6 +175,14 @@ static KNOWN_FUNCTIONS: Lazy<HashMap<&str, Regex>> = Lazy::new(|| {
                 ...... \x85\xD2 \x74\x0A
                 \x83\xEC\x08 \x50 \x51 \xFF\xD2
                 \x83\xC4\x10 \x8B\x5D\xFC \xC9 \xC3
+            |
+                # dunno versions, PIC, the ones used in ByteWeight
+                \xB8.... \x2D....
+                \xC1\xF8\x02 \x89\xC2 \xC1\xEA\x1F \x01\xD0 \xD1\xF8 \x75\x02
+                \xF3\xC3
+                \xBA\x00\x00\x00\x00 \x85\xD2 \x74\xF5 
+                \x55 \x89\xE5 \x83\xEC\x18 \x89\x44\x24\x04
+                \xC7\x04\x24.... \xFF\xD2 \xC9 \xC3
         "#,
             ),
             (
@@ -233,6 +254,12 @@ static KNOWN_FUNCTIONS: Lazy<HashMap<&str, Regex>> = Lazy::new(|| {
             |
                 # debian buster, gcc 8.3.0, PIC
                 \xE9....
+            |
+                # dunno versions, PIC, the ones used in ByteWeight
+                \xA1.... \x85\xC0 \x74\x1E
+                \xB8\x00\x00\x00\x00 \x85\xC0 \x74\x15
+                \x55 \x89\xE5 \x83\xEC\x18 \xC7\x04\x24.... \xFF\xD0
+                \xC9 \xE9.... \xE9....
         "#,
             ),
             // those functions are kinda magic and allow any code to be inserted between the epilogue and the prologue
@@ -251,6 +278,12 @@ static KNOWN_FUNCTIONS: Lazy<HashMap<&str, Regex>> = Lazy::new(|| {
                 \x53 \x83\xEC\x08 \xE8....
                 \x81\xC3.... \x8B\x83.... \x85\xC0 \x74\x02 \xFF\xD0
                 \x83\xC4\x08 \x5B \xC3
+            |
+                # dunno versions, PIC, the ones used in ByteWeight
+                \x55 \x89\xE5 \x53 \x83\xEC\x04
+                \xE8\x00\x00\x00\x00
+                \x5B \x81\xC3.... \x8B\x93.... \x85\xD2 \x74\x05 \xE8....
+                \x58 \x5B \xC9 \xC3
         "#,
             ),
             (
@@ -260,6 +293,12 @@ static KNOWN_FUNCTIONS: Lazy<HashMap<&str, Regex>> = Lazy::new(|| {
                 \x53 \x83\xEC\x08 \xE8....
                 \x81\xC3....
                 \x83\xC4\x08 \x5B \xC3
+            |
+                # dunno versions, PIC, the ones used in ByteWeight
+                \x55 \x89\xE5 \x53 \x83\xEC\x04 
+                \xE8\x00\x00\x00\x00
+                \x5B \x81\xC3....
+                \x59 \x5B \xC9 \xC3
         "#,
             ),
         ]
