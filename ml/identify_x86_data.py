@@ -1,3 +1,6 @@
+MAX_ISN_SIZE = 15
+RELATION_COUNT = 5
+
 INSTR_CODES = [
 	"INVALID",
 	"DeclareByte",

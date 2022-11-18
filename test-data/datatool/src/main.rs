@@ -335,6 +335,9 @@ async fn action_bulk_make_graph(args: BulkMakeGraph) -> Result<()> {
 
     // don't forget the vocab!
     vocab.serialize_to(std::fs::File::create(args.vocab_out_path)?)?;
+    vocab.serialize_to(std::fs::File::create(
+        args.graphs_out_path.join("code.vocab"),
+    )?)?;
 
     Ok(())
 }

@@ -74,9 +74,12 @@ impl GraphSample {
         // TODO: this is clearly not the most efficient solution, but it works ig
 
         // encode instructions
-        let instruction_sizes = Array1::from_iter(self.superset.iter().map(|(i, _)| i.size));
+
+        let instruction_sizes = Array1::from_iter(self.superset.iter().map(
+            |(i, _)| i.size - 1, /* substraction is to make it 0-indexed class index */
+        ));
         let instruction_codes =
-            Array1::from_iter(self.superset.iter().map(|(i, _)| vocab[i.code] as u32));
+            Array1::from_iter(self.superset.iter().map(|(i, _)| vocab[i.code] as i32));
         let instruction_labels = if self.superset.iter().all(|(_, l)| l.is_some()) {
             Some(Array1::from_iter(self.superset.iter().map(
                 |(_, l)| match l.unwrap() {
@@ -96,7 +99,7 @@ impl GraphSample {
             (self.graph.len(), 2),
             self.graph
                 .iter()
-                .flat_map(|&(a, b, _)| [a as u32, b as u32])
+                .flat_map(|&(a, b, _)| [a as i32, b as i32])
                 .collect(),
         )
         .unwrap();
