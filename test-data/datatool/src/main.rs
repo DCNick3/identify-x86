@@ -1,5 +1,3 @@
-extern crate core;
-
 // TODO: write a CLI entrypoint for this
 mod byteweight;
 mod debian;
@@ -8,10 +6,12 @@ mod model;
 
 use crate::loader::dump_pdb;
 use crate::model::interval_set::Interval;
-use crate::model::ExecutableSample;
+use crate::model::{CodeVocab, CodeVocabBuilder, ExecutableSample};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use indicatif::ParallelProgressIterator;
 use object::read::pe::PeFile32;
+use rayon::prelude::*;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -30,6 +30,8 @@ enum Action {
     DumpByteweight(DumpByteweight),
     ShowSample(ShowSample),
     MakeSuperset(MakeSuperset),
+    MakeGraph(MakeGraph),
+    BulkMakeGraph(BulkMakeGraph),
     PythonCodegen,
 }
 
@@ -108,6 +110,22 @@ struct ShowSample {
 struct MakeSuperset {
     sample_path: PathBuf,
     output_path: PathBuf,
+}
+
+#[derive(Debug, clap::Args)]
+struct MakeGraph {
+    sample_path: PathBuf,
+    vocab_path: PathBuf,
+    output_path: PathBuf,
+}
+
+#[derive(Debug, clap::Args)]
+struct BulkMakeGraph {
+    samples_path: PathBuf,
+    #[clap(short, long, default_value_t = 500)]
+    vocab_size: usize,
+    vocab_out_path: PathBuf,
+    graphs_out_path: PathBuf,
 }
 
 fn write_sample(sample: &ExecutableSample, path: impl AsRef<Path>) -> Result<()> {
@@ -235,10 +253,88 @@ async fn action_make_superset(args: MakeSuperset) -> Result<()> {
     let sample = ExecutableSample::deserialize_from(&mut std::fs::File::open(&args.sample_path)?)?;
     let superset = sample.into_superset();
 
-    // TODO: serde_pickle is kinda slow, wanna find something else
     let file = std::fs::File::create(&args.output_path)?;
     let file = BufWriter::new(file);
     superset.to_parquet(file)?;
+
+    Ok(())
+}
+
+async fn action_make_graph(args: MakeGraph) -> Result<()> {
+    let sample = ExecutableSample::deserialize_from(&mut std::fs::File::open(&args.sample_path)?)?;
+    let graph = sample.into_graph();
+
+    let vocab = CodeVocab::deserialize_from(std::fs::File::open(&args.vocab_path)?)?;
+
+    let file = std::fs::File::create(&args.output_path)?;
+    let file = BufWriter::new(file);
+    graph.to_npz(&vocab, file)?;
+
+    Ok(())
+}
+
+async fn action_bulk_make_graph(args: BulkMakeGraph) -> Result<()> {
+    let samples = walkdir::WalkDir::new(&args.samples_path)
+        .into_iter()
+        .filter(|e| {
+            e.as_ref()
+                .map(|e| e.path().extension().unwrap_or_default() == "sample")
+                .unwrap_or(false)
+        })
+        .map(|r| r.map(|e| e.into_path()).map_err(|e| e.into()))
+        .collect::<Result<Vec<PathBuf>>>()?;
+
+    info!("Found {} samples", samples.len());
+
+    // let's build the vocab first
+    info!("Building vocab...");
+    let vocab = samples
+        .par_iter()
+        .progress_count(samples.len() as u64)
+        .map(|sample_path| -> Result<_> {
+            // info!("Processing {}", sample_path.display());
+            let mut b = CodeVocabBuilder::new();
+            let sample =
+                ExecutableSample::deserialize_from(&mut std::fs::File::open(&sample_path)?)?;
+            let superset = sample.into_superset();
+            b.add_sample(&superset);
+            Ok(b)
+        })
+        .try_reduce(
+            || CodeVocabBuilder::new(),
+            |mut a, b| {
+                a.merge(b);
+                Ok(a)
+            },
+        )?
+        .build_top_k(args.vocab_size);
+
+    // now to the real work!
+    info!("Building graphs...");
+    samples
+        .par_iter()
+        .progress_count(samples.len() as u64)
+        .try_for_each(|sample_path| -> Result<()> {
+            let sample =
+                ExecutableSample::deserialize_from(&mut std::fs::File::open(&sample_path)?)?;
+            let graph = sample.into_graph();
+
+            let output_path = args
+                .graphs_out_path
+                .join(sample_path.strip_prefix(&args.samples_path).unwrap())
+                .with_extension("graph");
+
+            std::fs::create_dir_all(output_path.parent().unwrap())?;
+
+            let file = std::fs::File::create(&output_path)?;
+            let file = BufWriter::new(file);
+            graph.to_npz(&vocab, file)?;
+
+            Ok(())
+        })?;
+
+    // don't forget the vocab!
+    vocab.serialize_to(std::fs::File::create(args.vocab_out_path)?)?;
 
     Ok(())
 }
@@ -273,6 +369,8 @@ async fn main_impl() -> Result<()> {
         Action::DumpByteweight(args) => action_dump_byteweight(args).await,
         Action::ShowSample(args) => action_show_sample(args).await,
         Action::MakeSuperset(args) => action_make_superset(args).await,
+        Action::MakeGraph(args) => action_make_graph(args).await,
+        Action::BulkMakeGraph(args) => action_bulk_make_graph(args).await,
         Action::PythonCodegen => action_python_codegen().await,
     }
 }
