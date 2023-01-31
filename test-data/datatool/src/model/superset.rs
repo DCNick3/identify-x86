@@ -1,5 +1,6 @@
 use crate::model::ExecutableSample;
-use iced_x86::{Code, DecoderOptions};
+use bitflags::bitflags;
+use iced_x86::{Code, DecoderOptions, InstructionInfoFactory, OpAccess};
 use itertools::Itertools;
 use parquet::basic::Compression;
 use parquet::file::metadata::KeyValue;
@@ -18,15 +19,92 @@ pub enum Label {
     NotCode,
 }
 
+bitflags! {
+    #[derive(Serialize, Deserialize)]
+    pub struct RegisterSet: u16 {
+        // track only full-size registers
+        const EAX = 1 << 0;
+        const ECX = 1 << 1;
+        const EDX = 1 << 2;
+        const EBX = 1 << 3;
+        const ESP = 1 << 4;
+        const EBP = 1 << 5;
+        const ESI = 1 << 6;
+        const EDI = 1 << 7;
+
+        // track status flags separately
+        const CF = 1 << 8;
+        const PF = 1 << 9;
+        const AF = 1 << 10;
+        const ZF = 1 << 11;
+        const SF = 1 << 12;
+    }
+}
+
+impl From<iced_x86::Register> for RegisterSet {
+    fn from(reg: iced_x86::Register) -> Self {
+        use iced_x86::Register::*;
+        match reg.full_register32() {
+            EAX => RegisterSet::EAX,
+            ECX => RegisterSet::ECX,
+            EDX => RegisterSet::EDX,
+            EBX => RegisterSet::EBX,
+            ESP => RegisterSet::ESP,
+            EBP => RegisterSet::EBP,
+            ESI => RegisterSet::ESI,
+            EDI => RegisterSet::EDI,
+            _ => RegisterSet::empty(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Copy, Clone)]
 pub struct InstructionFeature {
     pub size: u8,
     pub code: Code,
     pub jump_target: Option<u32>,
+    pub defines: RegisterSet,
+    pub uses: RegisterSet,
 }
 
 impl From<iced_x86::Instruction> for InstructionFeature {
     fn from(instruction: iced_x86::Instruction) -> Self {
+        // TODO: reuse the InstructionInfoFactory (it allocates)
+        let mut info = InstructionInfoFactory::new();
+        let info = info.info_options(
+            &instruction,
+            iced_x86::InstructionInfoOptions::NO_MEMORY_USAGE,
+        );
+
+        let defines = info
+            .used_registers()
+            .iter()
+            .filter(|r| {
+                matches!(
+                    r.access(),
+                    OpAccess::Write
+                        | OpAccess::ReadWrite
+                        | OpAccess::CondWrite
+                        | OpAccess::ReadCondWrite
+                )
+            })
+            .map(|r| r.register().into())
+            .fold(RegisterSet::empty(), |acc, v| acc | v);
+        let uses = info
+            .used_registers()
+            .iter()
+            .filter(|r| {
+                matches!(
+                    r.access(),
+                    OpAccess::Read
+                        | OpAccess::ReadWrite
+                        | OpAccess::CondRead
+                        | OpAccess::ReadCondWrite
+                )
+            })
+            .map(|r| r.register().into())
+            .fold(RegisterSet::empty(), |acc, v| acc | v);
+
         InstructionFeature {
             size: instruction.len() as u8,
             code: instruction.code(),
@@ -38,6 +116,8 @@ impl From<iced_x86::Instruction> for InstructionFeature {
             } else {
                 None
             },
+            defines,
+            uses,
         }
     }
 }

@@ -1,13 +1,16 @@
 use crate::model::vocab::CodeVocab;
 use crate::model::{InstructionFeature, Label, SupersetSample};
+use itertools::Itertools;
 use ndarray::{Array1, Array2};
 use ndarray_npy::NpzWriter;
 use num_enum::IntoPrimitive;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Seek, Write};
 
-#[derive(Serialize, Deserialize, IntoPrimitive, Copy, Clone)]
+#[derive(
+    Serialize, Deserialize, IntoPrimitive, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[repr(u8)]
 pub enum RelationType {
     Next = 0,
@@ -15,7 +18,13 @@ pub enum RelationType {
     Overlap = 2,
     JumpTo = 3,
     JumpFrom = 4,
+    DataDependency = 5,
+    DataDependent = 6,
 }
+
+// struct DataDepBuilder {
+//     pub instructions: HashMap<u32, DataDepInstructionInfo>,
+// }
 
 #[derive(Serialize, Deserialize)]
 pub struct GraphSample {
@@ -28,6 +37,8 @@ impl GraphSample {
     pub fn new(superset: SupersetSample) -> Self {
         let mut graph = Vec::new();
 
+        // TODO: we can devise a custom collection to map addresses to something
+        // it can be implemented as a vector (or a group of them?), as the addresses are usually densely packed in some range
         let mut index = HashMap::new();
         for (i, &(addr, _, _)) in superset.superset.iter().enumerate() {
             index.insert(addr, i);

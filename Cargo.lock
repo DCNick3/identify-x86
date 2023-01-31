@@ -1409,6 +1409,7 @@ dependencies = [
  "anyhow",
  "async-tar",
  "bincode",
+ "bitflags",
  "clap",
  "debian-packaging",
  "futures-io",
