@@ -1,11 +1,14 @@
+use crate::model::superset::UsedRegister;
 use crate::model::vocab::CodeVocab;
 use crate::model::{InstructionFeature, Label, SupersetSample};
-use itertools::Itertools;
+use arrayvec::ArrayVec;
+use enum_map::EnumMap;
 use ndarray::{Array1, Array2};
 use ndarray_npy::NpzWriter;
 use num_enum::IntoPrimitive;
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use smallvec::{smallvec, SmallVec};
 use std::io::{Seek, Write};
 
 #[derive(
@@ -22,49 +25,232 @@ pub enum RelationType {
     DataDependent = 6,
 }
 
-// struct DataDepBuilder {
-//     pub instructions: HashMap<u32, DataDepInstructionInfo>,
-// }
+// stores the indices of the latest definition of a register
+type DataDepState = EnumMap<UsedRegister, SmallVec<[Index32; 4]>>;
+type Index32 = u32;
+type Address32 = u32;
+
+fn get_instr_out_edges(
+    superset: &[(Address32, InstructionFeature, Option<Label>)],
+    superset_index: &FxHashMap<Address32, Index32>,
+    index: usize,
+) -> ArrayVec<Index32, 2> {
+    let (addr, instr, _) = superset[index];
+    let next_addr = addr + instr.size as Address32;
+
+    let out_edges = None
+        .into_iter()
+        // the next instruction
+        .chain(
+            instr
+                .falls_through
+                .then(|| superset_index.get(&next_addr).cloned())
+                .flatten(),
+        )
+        // the jump target
+        .chain(
+            instr
+                .jump_target
+                .and_then(|target| superset_index.get(&target).cloned()),
+        )
+        .rev()
+        .collect();
+
+    out_edges
+}
+
+fn toposort(
+    superset: &[(Address32, InstructionFeature, Option<Label>)],
+    superset_index: &FxHashMap<Address32, Index32>,
+) -> Vec<Index32> {
+    struct BacktrackStackItem {
+        index: Index32,
+        iter: ArrayVec<Index32, 2>,
+    }
+
+    let len = superset.len();
+    let mut stack = Vec::new();
+    let mut is_in_stack = vec![false; len];
+    let mut was_visited = vec![false; len];
+    let mut result = Vec::new();
+
+    // TODO: maybe find a better ordering?
+    // currently, this results in just in 0..len being returned from the function
+    for start_index in (0..len).rev() {
+        if was_visited[start_index] {
+            continue;
+        }
+
+        stack.push(BacktrackStackItem {
+            index: start_index as Index32,
+            iter: get_instr_out_edges(superset, superset_index, start_index),
+        });
+
+        while let Some(mut item) = stack.pop() {
+            if let Some(next) = item.iter.pop() {
+                let index = item.index;
+
+                // push current item back to the stack
+                stack.push(item);
+
+                // ignore any back edges to guarantee acyclicity
+                if next <= index {
+                    continue;
+                }
+                // ignore already visited (and finalized) nodes
+                if was_visited[next as usize] {
+                    continue;
+                }
+
+                if is_in_stack[next as usize] {
+                    panic!("cycle detected, even though it should have been removed")
+                }
+                is_in_stack[next as usize] = true;
+
+                stack.push(BacktrackStackItem {
+                    index: next,
+                    iter: get_instr_out_edges(superset, superset_index, next as usize),
+                });
+            } else {
+                is_in_stack[item.index as usize] = false;
+                if !was_visited[item.index as usize] {
+                    was_visited[item.index as usize] = true;
+                    result.push(item.index);
+                } else {
+                    panic!("We have left the node twice?? (index: {})", item.index)
+                }
+            }
+        }
+    }
+
+    result.reverse();
+
+    result
+}
+
+// walk all simple paths using recursion (TODO: can this fail because of too much recursion?)
+fn walk_data_dep(
+    superset: &[(Address32, InstructionFeature, Option<Label>)],
+    superset_index: &FxHashMap<Address32, Index32>,
+) -> FxHashSet<(Index32, Index32)> {
+    fn collect_edges(
+        edges: &mut FxHashSet<(Index32, Index32)>,
+        superset: &[(Address32, InstructionFeature, Option<Label>)],
+        index: usize,
+        data_state: &DataDepState,
+    ) {
+        let (_, instr, _) = superset[index];
+        for used_reg in instr.uses.iter() {
+            let define_indices = &data_state[used_reg];
+            for define_index in define_indices.iter().cloned() {
+                edges.insert((define_index as Index32, index as Index32));
+            }
+        }
+        // todo: handle defined registers
+        // for defined_reg in instr.defines.iter() {
+        //     data_state[defined_reg] = index as i32;
+        // }
+    }
+
+    fn apply_state(
+        superset: &[(Address32, InstructionFeature, Option<Label>)],
+        index: usize,
+        data_state: &mut DataDepState,
+    ) {
+        let (_, instr, _) = superset[index];
+        for defined_reg in instr.defines.iter() {
+            data_state[defined_reg] = smallvec![index as Index32];
+        }
+    }
+
+    fn aggregate_state(data_state: &DataDepState, dst_state: &mut DataDepState) {
+        for (src, dst) in data_state.values().zip(dst_state.values_mut()) {
+            for &src in src {
+                if !dst.contains(&src) {
+                    dst.push(src);
+                }
+            }
+        }
+    }
+
+    let topo_order = toposort(superset, superset_index);
+
+    let len = superset.len();
+    let mut edges = FxHashSet::default();
+    let mut states = vec![DataDepState::default(); len];
+
+    // walk the graph in topological order, collecting edges and updating the data dependency state
+    for index in topo_order {
+        let state = &states[index as usize];
+        collect_edges(&mut edges, superset, index as usize, state);
+        let mut state = state.clone();
+        // dbg!(index);
+        // dbg!(&state);
+        // dbg!(superset[index as usize].1);
+        apply_state(superset, index as usize, &mut state);
+        // dbg!(&state);
+        for succ in get_instr_out_edges(superset, superset_index, index as usize) {
+            aggregate_state(&state, &mut states[succ as usize]);
+        }
+    }
+
+    edges
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct GraphSample {
+    // we store out superset disassembly, but we don't need the addresses
     pub superset: Vec<(InstructionFeature, Option<Label>)>,
-    pub graph: Vec<(usize, usize, RelationType)>,
+    // stores the graph, using indices into superset
+    pub graph: Vec<(Index32, Index32, RelationType)>,
     pub source: Option<String>,
 }
 
 impl GraphSample {
     pub fn new(superset: SupersetSample) -> Self {
+        assert!(superset.superset.len() < i32::MAX as usize);
+
         let mut graph = Vec::new();
 
         // TODO: we can devise a custom collection to map addresses to something
         // it can be implemented as a vector (or a group of them?), as the addresses are usually densely packed in some range
-        let mut index = HashMap::new();
+        let mut index = FxHashMap::default();
         for (i, &(addr, _, _)) in superset.superset.iter().enumerate() {
-            index.insert(addr, i);
+            index.insert(addr as Address32, i as Index32);
+        }
+
+        for (defines, uses) in walk_data_dep(&superset.superset, &index) {
+            graph.push((uses, defines, RelationType::DataDependency));
+            graph.push((defines, uses, RelationType::DataDependent));
         }
 
         for (i, &(addr, ref instr, _)) in superset.superset.iter().enumerate() {
-            let next_addr = addr + instr.size as u32;
-            if let Some(next) = index.get(&next_addr).cloned() {
-                graph.push((i, next, RelationType::Next));
-                graph.push((next, i, RelationType::Previous));
-            }
+            let i = i as Index32;
+            if instr.falls_through {
+                let next_addr = addr + instr.size as u32;
+                if let Some(next) = index.get(&next_addr).cloned() {
+                    graph.push((i, next, RelationType::Next));
+                    graph.push((next, i, RelationType::Previous));
+                }
 
-            for j in addr..next_addr {
-                if let Some(overlap) = index.get(&j).cloned() {
-                    graph.push((i, overlap, RelationType::Overlap));
-                    graph.push((overlap, i, RelationType::Overlap));
+                for j in addr..next_addr {
+                    if let Some(overlap) = index.get(&j).cloned() {
+                        graph.push((i, overlap, RelationType::Overlap));
+                        graph.push((overlap, i, RelationType::Overlap));
+                    }
                 }
             }
 
             if let Some(target) = instr.jump_target {
                 if let Some(jump) = index.get(&target).cloned() {
+                    // dbg!((addr, target, i, jump));
                     graph.push((i, jump, RelationType::JumpTo));
                     graph.push((jump, i, RelationType::JumpFrom));
                 }
             }
         }
+
+        graph.sort();
 
         Self {
             superset: superset

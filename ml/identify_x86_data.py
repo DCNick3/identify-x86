@@ -1,5 +1,28 @@
 MAX_ISN_SIZE = 15
-RELATION_COUNT = 5
+RELATION_COUNT = 7
+
+
+def numpy_zstd_monkeypatch():
+	"""
+	monkey patch numpy to support zstd for npz files
+	"""
+	import numpy as np
+	from numpy.compat import os_fspath
+
+	def zipfile_factory(file, *args, **kwargs):
+		"""
+		Create a ZipFile.
+		Allows for Zip64, and the `file` argument can accept file, str, or
+		pathlib.Path objects. `args` and `kwargs` are passed to the zipfile.ZipFile
+		constructor.
+		"""
+		if not hasattr(file, 'read'):
+			file = os_fspath(file)
+		import zipfile_zstd as zipfile
+		kwargs['allowZip64'] = True
+		return zipfile.ZipFile(file, *args, **kwargs)
+
+	np.lib.npyio.zipfile_factory = zipfile_factory
 
 INSTR_CODES = [
 	"INVALID",

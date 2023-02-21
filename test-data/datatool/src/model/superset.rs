@@ -1,6 +1,7 @@
 use crate::model::ExecutableSample;
 use bitflags::bitflags;
-use iced_x86::{Code, DecoderOptions, InstructionInfoFactory, OpAccess};
+use enum_map::Enum;
+use iced_x86::{Code, DecoderOptions, InstructionInfoFactory, OpAccess, RflagsBits};
 use itertools::Itertools;
 use parquet::basic::Compression;
 use parquet::file::metadata::KeyValue;
@@ -19,25 +20,74 @@ pub enum Label {
     NotCode,
 }
 
+#[derive(Enum, Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u8)]
+pub enum UsedRegister {
+    Eax = 0,
+    Ecx = 1,
+    Edx = 2,
+    Ebx = 3,
+    Esp = 4,
+    Ebp = 5,
+    Esi = 6,
+    Edi = 7,
+
+    Cf = 8,
+    Pf = 9,
+    Af = 10,
+    Zf = 11,
+    Sf = 12,
+}
+
 bitflags! {
     #[derive(Serialize, Deserialize)]
     pub struct RegisterSet: u16 {
         // track only full-size registers
-        const EAX = 1 << 0;
-        const ECX = 1 << 1;
-        const EDX = 1 << 2;
-        const EBX = 1 << 3;
-        const ESP = 1 << 4;
-        const EBP = 1 << 5;
-        const ESI = 1 << 6;
-        const EDI = 1 << 7;
+        const EAX = 1 << UsedRegister::Eax as u16;
+        const ECX = 1 << UsedRegister::Ecx as u16;
+        const EDX = 1 << UsedRegister::Edx as u16;
+        const EBX = 1 << UsedRegister::Ebx as u16;
+        const ESP = 1 << UsedRegister::Esp as u16;
+        const EBP = 1 << UsedRegister::Ebp as u16;
+        const ESI = 1 << UsedRegister::Esi as u16;
+        const EDI = 1 << UsedRegister::Edi as u16;
 
         // track status flags separately
-        const CF = 1 << 8;
-        const PF = 1 << 9;
-        const AF = 1 << 10;
-        const ZF = 1 << 11;
-        const SF = 1 << 12;
+        const CF = 1 << UsedRegister::Cf as u16;
+        const PF = 1 << UsedRegister::Pf as u16;
+        const AF = 1 << UsedRegister::Af as u16;
+        const ZF = 1 << UsedRegister::Zf as u16;
+        const SF = 1 << UsedRegister::Sf as u16;
+    }
+}
+
+impl RegisterSet {
+    #[inline]
+    pub fn iter(&self) -> RegisterSetIterator {
+        RegisterSetIterator {
+            set: *self,
+            current: 0,
+        }
+    }
+
+    pub fn from_rflags(rflags: u32) -> Self {
+        let mut set = RegisterSet::empty();
+        if rflags & RflagsBits::CF as u32 != 0 {
+            set |= RegisterSet::CF;
+        }
+        if rflags & RflagsBits::PF as u32 != 0 {
+            set |= RegisterSet::PF;
+        }
+        if rflags & RflagsBits::AF as u32 != 0 {
+            set |= RegisterSet::AF;
+        }
+        if rflags & RflagsBits::ZF as u32 != 0 {
+            set |= RegisterSet::ZF;
+        }
+        if rflags & RflagsBits::SF as u32 != 0 {
+            set |= RegisterSet::SF;
+        }
+        set
     }
 }
 
@@ -58,25 +108,71 @@ impl From<iced_x86::Register> for RegisterSet {
     }
 }
 
-#[derive(Serialize, Deserialize, Copy, Clone)]
+impl From<UsedRegister> for RegisterSet {
+    fn from(reg: UsedRegister) -> Self {
+        use UsedRegister::*;
+        match reg {
+            Eax => RegisterSet::EAX,
+            Ecx => RegisterSet::ECX,
+            Edx => RegisterSet::EDX,
+            Ebx => RegisterSet::EBX,
+            Esp => RegisterSet::ESP,
+            Ebp => RegisterSet::EBP,
+            Esi => RegisterSet::ESI,
+            Edi => RegisterSet::EDI,
+            Cf => RegisterSet::CF,
+            Pf => RegisterSet::PF,
+            Af => RegisterSet::AF,
+            Zf => RegisterSet::ZF,
+            Sf => RegisterSet::SF,
+        }
+    }
+}
+
+pub struct RegisterSetIterator {
+    set: RegisterSet,
+    current: usize,
+}
+
+impl Iterator for RegisterSetIterator {
+    type Item = UsedRegister;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current >= UsedRegister::LENGTH {
+            return None;
+        }
+        // let current = UsedRegister::from_usize(self.current);
+        let current: UsedRegister = unsafe { std::mem::transmute(self.current as u8) };
+        self.current = self.current + 1;
+        if self.set.contains(current.into()) {
+            Some(current)
+        } else {
+            self.next()
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
 pub struct InstructionFeature {
     pub size: u8,
     pub code: Code,
     pub jump_target: Option<u32>,
-    pub defines: RegisterSet,
+    pub falls_through: bool,
     pub uses: RegisterSet,
+    pub defines: RegisterSet,
 }
 
 impl From<iced_x86::Instruction> for InstructionFeature {
     fn from(instruction: iced_x86::Instruction) -> Self {
         // TODO: reuse the InstructionInfoFactory (it allocates)
-        let mut info = InstructionInfoFactory::new();
-        let info = info.info_options(
+        let mut factory = InstructionInfoFactory::new();
+        let instr_info = factory.info_options(
             &instruction,
             iced_x86::InstructionInfoOptions::NO_MEMORY_USAGE,
         );
 
-        let defines = info
+        let defines = instr_info
             .used_registers()
             .iter()
             .filter(|r| {
@@ -89,8 +185,9 @@ impl From<iced_x86::Instruction> for InstructionFeature {
                 )
             })
             .map(|r| r.register().into())
-            .fold(RegisterSet::empty(), |acc, v| acc | v);
-        let uses = info
+            .fold(RegisterSet::empty(), |acc, v| acc | v)
+            | RegisterSet::from_rflags(instruction.rflags_modified());
+        let uses = instr_info
             .used_registers()
             .iter()
             .filter(|r| {
@@ -103,7 +200,8 @@ impl From<iced_x86::Instruction> for InstructionFeature {
                 )
             })
             .map(|r| r.register().into())
-            .fold(RegisterSet::empty(), |acc, v| acc | v);
+            .fold(RegisterSet::empty(), |acc, v| acc | v)
+            | RegisterSet::from_rflags(instruction.rflags_read()); // TODO: maybe we want to handle the "undefined" as a special case
 
         InstructionFeature {
             size: instruction.len() as u8,
@@ -116,6 +214,13 @@ impl From<iced_x86::Instruction> for InstructionFeature {
             } else {
                 None
             },
+            falls_through: !matches!(
+                instruction.flow_control(),
+                iced_x86::FlowControl::UnconditionalBranch
+                    | iced_x86::FlowControl::IndirectBranch
+                    | iced_x86::FlowControl::Return
+                    | iced_x86::FlowControl::Exception
+            ),
             defines,
             uses,
         }
@@ -159,6 +264,7 @@ impl SupersetSample {
                 decoder
                     .set_position((address - item.addr) as usize)
                     .unwrap();
+                decoder.set_ip(address as u64);
                 let instruction = decoder.decode();
                 let instruction = InstructionFeature::from(instruction);
 
