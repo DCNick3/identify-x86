@@ -1,3 +1,11 @@
+#[allow(unused)]
+mod dummy_single_vec;
+mod single_vec;
+
+// this provides marginal improvement in memory usage
+use single_vec::SingleVec;
+// use dummy_single_vec::SingleVec;
+
 use crate::model::superset::UsedRegister;
 use crate::model::vocab::CodeVocab;
 use crate::model::{InstructionFeature, Label, SupersetSample};
@@ -6,9 +14,8 @@ use enum_map::EnumMap;
 use ndarray::{Array1, Array2};
 use ndarray_npy::NpzWriter;
 use num_enum::IntoPrimitive;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
-use smallvec::{smallvec, SmallVec};
 use std::io::{Seek, Write};
 
 #[derive(
@@ -26,7 +33,7 @@ pub enum RelationType {
 }
 
 // stores the indices of the latest definition of a register
-type DataDepState = EnumMap<UsedRegister, SmallVec<[Index32; 4]>>;
+type DataDepState = EnumMap<UsedRegister, SingleVec>;
 type Index32 = u32;
 type Address32 = u32;
 
@@ -130,11 +137,12 @@ fn toposort(
 
 // walk all simple paths using recursion (TODO: can this fail because of too much recursion?)
 fn walk_data_dep(
+    graph: &mut Graph,
     superset: &[(Address32, InstructionFeature, Option<Label>)],
     superset_index: &FxHashMap<Address32, Index32>,
-) -> FxHashSet<(Index32, Index32)> {
+) {
     fn collect_edges(
-        edges: &mut FxHashSet<(Index32, Index32)>,
+        graph: &mut Graph,
         superset: &[(Address32, InstructionFeature, Option<Label>)],
         index: usize,
         data_state: &DataDepState,
@@ -142,14 +150,19 @@ fn walk_data_dep(
         let (_, instr, _) = superset[index];
         for used_reg in instr.uses.iter() {
             let define_indices = &data_state[used_reg];
-            for define_index in define_indices.iter().cloned() {
-                edges.insert((define_index as Index32, index as Index32));
+            for define_index in define_indices.iter() {
+                graph.add_edge(
+                    index as Index32,
+                    define_index as Index32,
+                    RelationType::DataDependency,
+                );
+                graph.add_edge(
+                    define_index as Index32,
+                    index as Index32,
+                    RelationType::DataDependent,
+                );
             }
         }
-        // todo: handle defined registers
-        // for defined_reg in instr.defines.iter() {
-        //     data_state[defined_reg] = index as i32;
-        // }
     }
 
     fn apply_state(
@@ -159,14 +172,14 @@ fn walk_data_dep(
     ) {
         let (_, instr, _) = superset[index];
         for defined_reg in instr.defines.iter() {
-            data_state[defined_reg] = smallvec![index as Index32];
+            data_state[defined_reg] = SingleVec::from_single(index as Index32);
         }
     }
 
     fn aggregate_state(data_state: &DataDepState, dst_state: &mut DataDepState) {
         for (src, dst) in data_state.values().zip(dst_state.values_mut()) {
-            for &src in src {
-                if !dst.contains(&src) {
+            for src in src.iter() {
+                if !dst.contains(src) {
                     dst.push(src);
                 }
             }
@@ -176,13 +189,12 @@ fn walk_data_dep(
     let topo_order = toposort(superset, superset_index);
 
     let len = superset.len();
-    let mut edges = FxHashSet::default();
     let mut states = vec![DataDepState::default(); len];
 
     // walk the graph in topological order, collecting edges and updating the data dependency state
     for index in topo_order {
         let state = &states[index as usize];
-        collect_edges(&mut edges, superset, index as usize, state);
+        collect_edges(graph, superset, index as usize, state);
         let mut state = state.clone();
         // dbg!(index);
         // dbg!(&state);
@@ -192,9 +204,36 @@ fn walk_data_dep(
         for succ in get_instr_out_edges(superset, superset_index, index as usize) {
             aggregate_state(&state, &mut states[succ as usize]);
         }
+        // we will never need this instr again, so we can clear the state
+        states[index as usize].clear();
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Graph {
+    pub edges: Vec<(Index32, Index32)>,
+    pub edge_types: Vec<RelationType>,
+}
+
+impl Graph {
+    pub fn new() -> Self {
+        Self {
+            edges: Vec::new(),
+            edge_types: Vec::new(),
+        }
     }
 
-    edges
+    pub fn add_edge(&mut self, from: Index32, to: Index32, edge_type: RelationType) {
+        self.edges.push((from, to));
+        self.edge_types.push(edge_type);
+    }
+
+    pub fn sort(&mut self) {
+        let mut perm = permutation::sort(&self.edges);
+
+        perm.apply_slice_in_place(&mut self.edges);
+        perm.apply_slice_in_place(&mut self.edge_types);
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -202,7 +241,7 @@ pub struct GraphSample {
     // we store out superset disassembly, but we don't need the addresses
     pub superset: Vec<(InstructionFeature, Option<Label>)>,
     // stores the graph, using indices into superset
-    pub graph: Vec<(Index32, Index32, RelationType)>,
+    pub graph: Graph,
     pub source: Option<String>,
 }
 
@@ -210,7 +249,7 @@ impl GraphSample {
     pub fn new(superset: SupersetSample) -> Self {
         assert!(superset.superset.len() < i32::MAX as usize);
 
-        let mut graph = Vec::new();
+        let mut graph = Graph::new();
 
         // TODO: we can devise a custom collection to map addresses to something
         // it can be implemented as a vector (or a group of them?), as the addresses are usually densely packed in some range
@@ -219,24 +258,21 @@ impl GraphSample {
             index.insert(addr as Address32, i as Index32);
         }
 
-        for (defines, uses) in walk_data_dep(&superset.superset, &index) {
-            graph.push((uses, defines, RelationType::DataDependency));
-            graph.push((defines, uses, RelationType::DataDependent));
-        }
+        walk_data_dep(&mut graph, &superset.superset, &index);
 
         for (i, &(addr, ref instr, _)) in superset.superset.iter().enumerate() {
             let i = i as Index32;
             if instr.falls_through {
                 let next_addr = addr + instr.size as u32;
                 if let Some(next) = index.get(&next_addr).cloned() {
-                    graph.push((i, next, RelationType::Next));
-                    graph.push((next, i, RelationType::Previous));
+                    graph.add_edge(i, next, RelationType::Next);
+                    graph.add_edge(next, i, RelationType::Previous);
                 }
 
                 for j in addr..next_addr {
                     if let Some(overlap) = index.get(&j).cloned() {
-                        graph.push((i, overlap, RelationType::Overlap));
-                        graph.push((overlap, i, RelationType::Overlap));
+                        graph.add_edge(i, overlap, RelationType::Overlap);
+                        graph.add_edge(overlap, i, RelationType::Overlap);
                     }
                 }
             }
@@ -244,8 +280,8 @@ impl GraphSample {
             if let Some(target) = instr.jump_target {
                 if let Some(jump) = index.get(&target).cloned() {
                     // dbg!((addr, target, i, jump));
-                    graph.push((i, jump, RelationType::JumpTo));
-                    graph.push((jump, i, RelationType::JumpFrom));
+                    graph.add_edge(i, jump, RelationType::JumpTo);
+                    graph.add_edge(jump, i, RelationType::JumpFrom);
                 }
             }
         }
@@ -291,16 +327,17 @@ impl GraphSample {
         drop(self.superset);
 
         // encode relations
-        let relation_types = Array1::from_iter(self.graph.iter().map(|&(_, _, t)| u8::from(t)));
+        let relation_types =
+            Array1::from_iter(self.graph.edge_types.into_iter().map(|t| u8::from(t)));
         let relations = Array2::from_shape_vec(
-            (self.graph.len(), 2),
+            (self.graph.edges.len(), 2),
             self.graph
-                .iter()
-                .flat_map(|&(a, b, _)| [a as i32, b as i32])
+                .edges
+                .into_iter()
+                .flat_map(|(a, b)| [a as i32, b as i32])
                 .collect(),
         )
         .unwrap();
-        drop(self.graph);
 
         let mut npz = NpzWriter::new_zstd_compressed(writer, Some(6));
         npz.add_array("instruction_sizes", &instruction_sizes)?;

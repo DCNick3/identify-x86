@@ -15,6 +15,7 @@ use rayon::prelude::*;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Instant;
 use tracing::{debug, error, info};
 
 #[derive(Debug, Parser)]
@@ -274,6 +275,11 @@ async fn action_make_graph(args: MakeGraph) -> Result<()> {
 }
 
 async fn action_bulk_make_graph(args: BulkMakeGraph) -> Result<()> {
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build_global()
+        .context("Initializing thread pool")?;
+
     let samples = walkdir::WalkDir::new(&args.samples_path)
         .into_iter()
         .filter(|e| {
@@ -315,6 +321,7 @@ async fn action_bulk_make_graph(args: BulkMakeGraph) -> Result<()> {
         .par_iter()
         .progress_count(samples.len() as u64)
         .try_for_each(|sample_path| -> Result<()> {
+            let start = Instant::now();
             let sample =
                 ExecutableSample::deserialize_from(&mut std::fs::File::open(&sample_path)?)?;
             let graph = sample.into_graph();
@@ -329,6 +336,14 @@ async fn action_bulk_make_graph(args: BulkMakeGraph) -> Result<()> {
             let file = std::fs::File::create(&output_path)?;
             let file = BufWriter::new(file);
             graph.to_npz(&vocab, file)?;
+
+            let time = start.elapsed();
+
+            info!(
+                "Processed {} in {:.04}s",
+                sample_path.display(),
+                time.as_secs_f64()
+            );
 
             Ok(())
         })?;

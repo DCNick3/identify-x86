@@ -873,6 +873,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ee2393c4a91429dffb4bedf19f4d6abf27d8a732c8ce4980305d782e5426d57"
 
 [[package]]
+name = "dbg_hex"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f74abed44e4dbc4d0548b565869c66c9c6d6d84011a8c14cee2cacfdada3d60"
+
+[[package]]
 name = "debian-packaging"
 version = "0.16.0-pre"
 dependencies = [
@@ -1439,6 +1445,7 @@ dependencies = [
  "bitflags",
  "bumpalo",
  "clap",
+ "dbg_hex",
  "debian-packaging",
  "enum-map",
  "futures-io",
@@ -1458,12 +1465,14 @@ dependencies = [
  "parquet",
  "parquet_derive",
  "pdb",
+ "permutation",
  "rayon",
  "regex",
  "rustc-hash",
  "serde",
  "serde_json",
  "smallvec",
+ "sptr",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2125,6 +2134,12 @@ name = "percent-encoding"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "478c572c3d73181ff3c2539045f6eb99e5491218eae919370993b890cdbdd98e"
+
+[[package]]
+name = "permutation"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df202b0b0f5b8e389955afd5f27b007b00fb948162953f1db9c70d2c7e3157d7"
 
 [[package]]
 name = "pest"
@@ -2911,6 +2926,12 @@ dependencies = [
  "base64ct",
  "der",
 ]
+
+[[package]]
+name = "sptr"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b9b39299b249ad65f3b7e96443bad61c02ca5cd3589f46cb6d610a0fd6c0d6a"
 
 [[package]]
 name = "stable_deref_trait"
