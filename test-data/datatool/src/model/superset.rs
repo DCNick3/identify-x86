@@ -1,4 +1,4 @@
-use crate::model::ExecutableSample;
+use crate::model::{ExecutableSample, GraphSample};
 use bitflags::bitflags;
 use enum_map::Enum;
 use iced_x86::{Code, DecoderOptions, InstructionInfoFactory, OpAccess, RflagsBits};
@@ -281,6 +281,10 @@ impl SupersetSample {
             superset,
             source: sample.source.map(|v| format!("{:?}", v)),
         }
+    }
+
+    pub fn into_graph(self) -> GraphSample {
+        GraphSample::new(self)
     }
 
     pub fn to_parquet<W: Write>(self, writer: W) -> anyhow::Result<()> {

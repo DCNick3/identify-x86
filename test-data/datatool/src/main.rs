@@ -276,7 +276,7 @@ async fn action_make_graph(args: MakeGraph) -> Result<()> {
 
 async fn action_bulk_make_graph(args: BulkMakeGraph) -> Result<()> {
     rayon::ThreadPoolBuilder::new()
-        .num_threads(4)
+        .num_threads(16)
         .build_global()
         .context("Initializing thread pool")?;
 
@@ -319,12 +319,29 @@ async fn action_bulk_make_graph(args: BulkMakeGraph) -> Result<()> {
     info!("Building graphs...");
     samples
         .par_iter()
-        .progress_count(samples.len() as u64)
+        // .progress_count(samples.len() as u64)
         .try_for_each(|sample_path| -> Result<()> {
             let start = Instant::now();
             let sample =
                 ExecutableSample::deserialize_from(&mut std::fs::File::open(&sample_path)?)?;
-            let graph = sample.into_graph();
+            let superset_sample = sample.into_superset();
+            info!(
+                "{:>150}: {:07} nodes",
+                sample_path.display(),
+                superset_sample.superset.len(),
+            );
+            let node_count = superset_sample.superset.len();
+
+            if node_count > 5000000 {
+                info!(
+                    "{:>150}: too much nodes, skipping, it will explode later down the line",
+                    sample_path.display()
+                );
+                return Ok(());
+            }
+
+            let graph = superset_sample.into_graph();
+            let edges_count = graph.graph.edges.len();
 
             let output_path = args
                 .graphs_out_path
@@ -340,9 +357,11 @@ async fn action_bulk_make_graph(args: BulkMakeGraph) -> Result<()> {
             let time = start.elapsed();
 
             info!(
-                "Processed {} in {:.04}s",
+                "{:>150}: {:07} nodes {:09} edges in {:03.04}s",
                 sample_path.display(),
-                time.as_secs_f64()
+                node_count,
+                edges_count,
+                time.as_secs_f64(),
             );
 
             Ok(())
