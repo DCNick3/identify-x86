@@ -3,6 +3,7 @@ mod byteweight;
 mod debian;
 mod loader;
 mod model;
+mod runners;
 
 use crate::loader::dump_pdb;
 use crate::model::interval_set::Interval;
@@ -12,6 +13,7 @@ use clap::{Parser, Subcommand};
 use indicatif::ParallelProgressIterator;
 use object::read::pe::PeFile32;
 use rayon::prelude::*;
+use std::fs::File;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -35,6 +37,7 @@ enum Action {
     MakeGraph(MakeGraph),
     BulkMakeGraph(BulkMakeGraph),
     PythonCodegen,
+    RunTool(RunTool),
 }
 
 #[allow(unused_parens)]
@@ -84,7 +87,9 @@ struct DumpPdb {
     output: Option<PathBuf>,
 }
 
+use crate::runners::DisasmTool;
 use debian_config::DebianConfigOpt;
+
 #[derive(Debug, clap::Args)]
 struct DumpDebian {
     package_names: Vec<String>,
@@ -134,6 +139,14 @@ struct BulkMakeGraph {
     vocab_size: usize,
     vocab_out_path: PathBuf,
     graphs_out_path: PathBuf,
+}
+
+#[derive(Debug, clap::Args)]
+struct RunTool {
+    tool: DisasmTool,
+    sample_path: PathBuf,
+    #[clap(short, long)]
+    output_path: Option<PathBuf>,
 }
 
 fn write_sample(sample: &ExecutableSample, path: impl AsRef<Path>) -> Result<()> {
@@ -416,6 +429,31 @@ async fn action_python_codegen() -> Result<()> {
     Ok(())
 }
 
+async fn action_run_tool(args: RunTool) -> Result<()> {
+    let sample = ExecutableSample::deserialize_from(&mut std::fs::File::open(&args.sample_path)?)?;
+
+    let config_file = "runners.yaml";
+    let config = std::fs::read_to_string("runners.yaml")
+        .with_context(|| format!("Reading runners config file {}", config_file))?;
+    let config = serde_yaml::from_str(&config)
+        .with_context(|| format!("Parsing runners config file {} as YAML", config_file))?;
+
+    let result = runners::run_tool(args.tool, &config, &sample)
+        .await
+        .context("Running disasm tool")?;
+
+    let mut output: Box<dyn std::io::Write> = match args.output_path {
+        Some(v) => Box::new(File::create(v)?),
+        None => Box::new(std::io::stdout()),
+    };
+
+    for instr_addr in result {
+        writeln!(output, "0x{:x}", instr_addr).context("Writing to output")?;
+    }
+
+    Ok(())
+}
+
 async fn main_impl() -> Result<()> {
     let args = Args::parse();
 
@@ -429,6 +467,7 @@ async fn main_impl() -> Result<()> {
         Action::MakeGraph(args) => action_make_graph(args).await,
         Action::BulkMakeGraph(args) => action_bulk_make_graph(args).await,
         Action::PythonCodegen => action_python_codegen().await,
+        Action::RunTool(args) => action_run_tool(args).await,
     }
 }
 
