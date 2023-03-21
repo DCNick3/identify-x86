@@ -10,11 +10,13 @@ pub use vocab::{CodeVocab, CodeVocabBuilder};
 use crate::loader::dump_elf_symbols;
 use crate::loader::load_executable;
 use crate::{dump_pdb, Interval};
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use interval_set::IntervalSet;
-use memory_image::MemoryImage;
+use memory_image::{MemoryImage, Protection};
 use object::read::elf::ElfFile32;
 use object::read::pe::PeFile32;
+use object::write::elf::ProgramHeader;
+use object::Endianness;
 use pdb::PDB;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -259,6 +261,68 @@ impl ExecutableSample {
 
     pub fn into_graph(self) -> GraphSample {
         GraphSample::new(SupersetSample::new(self))
+    }
+
+    pub fn as_stripped_elf(&self) -> Result<Vec<u8>> {
+        let mut buffer = Vec::<u8>::new();
+        let mut writer = object::write::elf::Writer::new(Endianness::Little, false, &mut buffer);
+
+        writer.reserve_file_header();
+        writer.reserve_program_headers(self.memory.iter().count() as u32);
+
+        const ALIGN: usize = 0x1000;
+
+        let offsets = self
+            .memory
+            .iter()
+            .map(|v| writer.reserve(v.data.len(), ALIGN))
+            .collect::<Vec<_>>();
+
+        writer
+            .write_file_header(&object::write::elf::FileHeader {
+                os_abi: object::elf::ELFOSABI_NONE,
+                abi_version: 0,
+                e_type: object::elf::ET_EXEC,
+                e_machine: object::elf::EM_386,
+                e_entry: 0, // TODO: set this to the entry point
+                e_flags: 0,
+            })
+            .context("Writing elf header")?;
+
+        writer.write_align_program_headers();
+
+        for (region, &offset) in self.memory.iter().zip(offsets.iter()) {
+            let prot = region.protection;
+            let mut flags = 0;
+            if prot.contains(Protection::READ) {
+                flags |= object::elf::PF_R;
+            }
+            if prot.contains(Protection::WRITE) {
+                flags |= object::elf::PF_W;
+            }
+            if prot.contains(Protection::EXECUTE) {
+                flags |= object::elf::PF_X;
+            }
+
+            writer.write_program_header(&ProgramHeader {
+                p_type: object::elf::PT_LOAD,
+                p_flags: flags,
+                p_offset: offset as u64,
+                p_vaddr: region.addr as u64,
+                p_paddr: region.addr as u64,
+                p_filesz: region.data.len() as u64,
+                p_memsz: region.data.len() as u64,
+                p_align: ALIGN as u64,
+            });
+        }
+
+        for (region, &offset) in self.memory.iter().zip(offsets.iter()) {
+            writer.write_align(ALIGN);
+            assert_eq!(writer.len(), offset);
+            writer.write(&region.data);
+        }
+
+        Ok(buffer)
     }
 }
 

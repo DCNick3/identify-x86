@@ -30,6 +30,7 @@ enum Action {
     DumpDebian(DumpDebian),
     DumpByteweight(DumpByteweight),
     ShowSample(ShowSample),
+    SampleToStrippedElf(SampleToStrippedElf),
     MakeSuperset(MakeSuperset),
     MakeGraph(MakeGraph),
     BulkMakeGraph(BulkMakeGraph),
@@ -105,6 +106,12 @@ struct ShowSample {
     sample_path: PathBuf,
     #[clap(short, long)]
     dump_ranges: bool,
+}
+
+#[derive(Debug, clap::Args)]
+struct SampleToStrippedElf {
+    sample_path: PathBuf,
+    output_path: PathBuf,
 }
 
 #[derive(Debug, clap::Args)]
@@ -246,6 +253,18 @@ async fn action_show_sample(args: ShowSample) -> Result<()> {
         coverage.1,
         coverage_float * 100.0
     );
+
+    Ok(())
+}
+
+async fn action_sample_to_stripped_elf(args: SampleToStrippedElf) -> Result<()> {
+    let sample = ExecutableSample::deserialize_from(&mut std::fs::File::open(&args.sample_path)?)?;
+
+    let elf_bytes = sample
+        .as_stripped_elf()
+        .context("Converting to stripped ELF")?;
+
+    std::fs::write(&args.output_path, elf_bytes).context("Writing stripped ELF")?;
 
     Ok(())
 }
@@ -405,6 +424,7 @@ async fn main_impl() -> Result<()> {
         Action::DumpDebian(args) => action_dump_debian(args).await,
         Action::DumpByteweight(args) => action_dump_byteweight(args).await,
         Action::ShowSample(args) => action_show_sample(args).await,
+        Action::SampleToStrippedElf(args) => action_sample_to_stripped_elf(args).await,
         Action::MakeSuperset(args) => action_make_superset(args).await,
         Action::MakeGraph(args) => action_make_graph(args).await,
         Action::BulkMakeGraph(args) => action_bulk_make_graph(args).await,

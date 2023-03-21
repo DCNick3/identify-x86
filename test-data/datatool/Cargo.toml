@@ -30,7 +30,7 @@ ndarray = "0.15.6"
 ndarray-npy = { git = "https://github.com/DCNick3/ndarray-npy", rev = "30b5e4e5fb36cf927b373ad2f5b608592a072541", features = ["compressed_npz_zstd"] }
 num = "0.4.0"
 num_enum = "0.5.7"
-object = "0.30.3"
+object = { version = "0.30.3", features = ["write"] }
 once_cell = "1.14.0"
 parquet = "35.0.0"
 parquet_derive = "35.0.0"
