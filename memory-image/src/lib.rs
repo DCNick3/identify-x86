@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 
 bitflags! {
-  #[derive(Default, Serialize, Deserialize)]
+  #[derive(Default, Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
   pub struct Protection: usize {
     /// No access allowed at all.
     const NONE = 0;
@@ -14,13 +14,13 @@ bitflags! {
     /// Execute access; this may not be allowed depending on DEP.
     const EXECUTE = (1 << 2);
     /// Read and execute shorthand.
-    const READ_EXECUTE = (Self::READ.bits | Self::EXECUTE.bits);
+    const READ_EXECUTE = (Self::READ.bits() | Self::EXECUTE.bits());
     /// Read and write shorthand.
-    const READ_WRITE = (Self::READ.bits | Self::WRITE.bits);
+    const READ_WRITE = (Self::READ.bits() | Self::WRITE.bits());
     /// Read, write and execute shorthand.
-    const READ_WRITE_EXECUTE = (Self::READ.bits | Self::WRITE.bits | Self::EXECUTE.bits);
+    const READ_WRITE_EXECUTE = (Self::READ.bits() | Self::WRITE.bits() | Self::EXECUTE.bits());
     /// Write and execute shorthand.
-    const WRITE_EXECUTE = (Self::WRITE.bits | Self::EXECUTE.bits);
+    const WRITE_EXECUTE = (Self::WRITE.bits() | Self::EXECUTE.bits());
   }
 }
 

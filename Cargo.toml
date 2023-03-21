@@ -11,7 +11,3 @@ opt-level = 2
 [profile.release]
 debug = 2
 split-debuginfo = "packed"
-
-[patch.crates-io]
-# To add support for older debian versions
-debian-packaging = { path = "/home/dcnick3/git_cloned/linux-packaging-rs/debian-packaging" }

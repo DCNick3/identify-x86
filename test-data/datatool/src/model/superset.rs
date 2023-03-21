@@ -40,7 +40,7 @@ pub enum UsedRegister {
 }
 
 bitflags! {
-    #[derive(Serialize, Deserialize)]
+    #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
     pub struct RegisterSet: u16 {
         // track only full-size registers
         const EAX = 1 << UsedRegister::Eax as u16;
@@ -63,7 +63,7 @@ bitflags! {
 
 impl RegisterSet {
     #[inline]
-    pub fn iter(&self) -> RegisterSetIterator {
+    pub fn iter_used_registers(&self) -> RegisterSetIterator {
         RegisterSetIterator {
             set: *self,
             current: 0,

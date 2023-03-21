@@ -148,7 +148,7 @@ fn walk_data_dep(
         data_state: &DataDepState,
     ) {
         let (_, instr, _) = superset[index];
-        for used_reg in instr.uses.iter() {
+        for used_reg in instr.uses.iter_used_registers() {
             let define_indices = &data_state[used_reg];
             for define_index in define_indices.iter() {
                 graph.add_edge(
@@ -171,7 +171,7 @@ fn walk_data_dep(
         data_state: &mut DataDepState,
     ) {
         let (_, instr, _) = superset[index];
-        for defined_reg in instr.defines.iter() {
+        for defined_reg in instr.defines.iter_used_registers() {
             data_state[defined_reg] = SingleVec::from_single(index as Index32);
         }
     }
