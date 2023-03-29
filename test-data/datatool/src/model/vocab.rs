@@ -38,10 +38,12 @@ impl CodeVocabBuilder {
         }
     }
 
+    #[allow(unused)]
     pub fn len(&self) -> usize {
         self.freq.len()
     }
 
+    #[allow(unused)]
     pub fn total_count(&self) -> usize {
         self.freq.values().sum()
     }
@@ -58,6 +60,7 @@ impl CodeVocabBuilder {
         CodeVocab::new(codes)
     }
 
+    #[allow(unused)]
     pub fn build(self) -> CodeVocab {
         let len = self.len();
         self.build_top_k(len)

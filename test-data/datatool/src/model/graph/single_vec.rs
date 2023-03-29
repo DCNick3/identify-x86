@@ -128,6 +128,7 @@ impl SingleVec {
         self.inner = Self::ptr_from_repr_mut(new_repr);
     }
 
+    #[allow(unused)]
     pub fn clear(&mut self) {
         unsafe { self.repr_mut() }.drop();
         *self = Self::new();
@@ -141,6 +142,7 @@ impl SingleVec {
         }
     }
 
+    #[allow(unused)]
     pub fn len(&self) -> usize {
         match self.repr() {
             ReprRef::Empty => 0,
