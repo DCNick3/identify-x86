@@ -1,3 +1,4 @@
+use crate::disassembly::DisassemblyResult;
 use crate::model::ExecutableSample;
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
@@ -9,13 +10,16 @@ use std::io::Write;
 use tracing::{error, warn};
 
 /// Runs the DeepDi tool in a docker container.
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct DeepDiConfig {
     pub drm_key: String,
     pub image_name: String,
 }
 
-pub async fn run_deepdi(config: &DeepDiConfig, sample: &ExecutableSample) -> Result<BTreeSet<u32>> {
+pub async fn run_deepdi(
+    config: &DeepDiConfig,
+    sample: &ExecutableSample,
+) -> Result<DisassemblyResult> {
     let docker = Docker::new();
 
     let sample_elf = sample
@@ -97,7 +101,7 @@ pub async fn run_deepdi(config: &DeepDiConfig, sample: &ExecutableSample) -> Res
 
     let output = std::str::from_utf8(&output).context("Failed to parse DeepDi output as string")?;
 
-    let mut result = BTreeSet::new();
+    let mut predicted_instructions = BTreeSet::new();
 
     for line in output.lines() {
         let line = line.trim();
@@ -106,8 +110,10 @@ pub async fn run_deepdi(config: &DeepDiConfig, sample: &ExecutableSample) -> Res
         }
 
         let address = u32::from_str_radix(&line[2..], 16).context("Failed to parse address")?;
-        result.insert(address);
+        predicted_instructions.insert(address);
     }
 
-    Ok(result)
+    Ok(DisassemblyResult {
+        predicted_instructions,
+    })
 }

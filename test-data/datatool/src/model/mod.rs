@@ -3,7 +3,7 @@ pub mod interval_set;
 mod superset;
 mod vocab;
 
-pub use graph::{GraphSample, RelationType};
+pub use graph::GraphSample;
 pub use superset::{InstructionFeature, Label, SupersetSample};
 pub use vocab::{CodeVocab, CodeVocabBuilder};
 

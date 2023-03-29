@@ -9,6 +9,7 @@ edition = "2021"
 anyhow = "1.0.64"
 arrayvec = "0.7.2"
 async-tar = "0.4.2"
+async-trait = "0.1.68"
 bincode = "1.3.3"
 bitflags = { version = "2.0.2", features = ["serde"] }
 bumpalo = "3.12.0"

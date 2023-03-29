@@ -1,15 +1,19 @@
 // TODO: write a CLI entrypoint for this
 mod byteweight;
 mod debian;
+mod disassembly;
+mod evaluate;
 mod loader;
 mod model;
-mod runners;
 
+use crate::disassembly::DisasmToolName;
+use crate::disassembly::ExecutableDisassembler;
 use crate::loader::dump_pdb;
 use crate::model::interval_set::Interval;
 use crate::model::{CodeVocab, CodeVocabBuilder, ExecutableSample};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use debian_config::DebianConfigOpt;
 use indicatif::ParallelProgressIterator;
 use object::read::pe::PeFile32;
 use rayon::prelude::*;
@@ -37,7 +41,7 @@ enum Action {
     MakeGraph(MakeGraph),
     BulkMakeGraph(BulkMakeGraph),
     PythonCodegen,
-    RunTool(RunTool),
+    RunDisasmTool(RunDisasmTool),
 }
 
 #[allow(unused_parens)]
@@ -86,9 +90,6 @@ struct DumpPdb {
     #[clap(short, long)]
     output: Option<PathBuf>,
 }
-
-use crate::runners::DisasmTool;
-use debian_config::DebianConfigOpt;
 
 #[derive(Debug, clap::Args)]
 struct DumpDebian {
@@ -142,8 +143,8 @@ struct BulkMakeGraph {
 }
 
 #[derive(Debug, clap::Args)]
-struct RunTool {
-    tool: DisasmTool,
+struct RunDisasmTool {
+    tool: DisasmToolName,
     sample_path: PathBuf,
     #[clap(short, long)]
     output_path: Option<PathBuf>,
@@ -429,7 +430,7 @@ async fn action_python_codegen() -> Result<()> {
     Ok(())
 }
 
-async fn action_run_tool(args: RunTool) -> Result<()> {
+async fn action_run_disasm_tool(args: RunDisasmTool) -> Result<()> {
     let sample = ExecutableSample::deserialize_from(&mut std::fs::File::open(&args.sample_path)?)?;
 
     let config_file = "runners.yaml";
@@ -438,18 +439,28 @@ async fn action_run_tool(args: RunTool) -> Result<()> {
     let config = serde_yaml::from_str(&config)
         .with_context(|| format!("Parsing runners config file {} as YAML", config_file))?;
 
-    let result = runners::run_tool(args.tool, &config, &sample)
+    let result = args
+        .tool
+        .with_config(&config)
+        .disassemble(&sample)
         .await
         .context("Running disasm tool")?;
 
     let mut output: Box<dyn std::io::Write> = match args.output_path {
         Some(v) => Box::new(File::create(v)?),
-        None => Box::new(std::io::stdout()),
+        None => Box::new(std::io::sink()),
     };
 
-    for instr_addr in result {
+    for &instr_addr in &result.predicted_instructions {
         writeln!(output, "0x{:x}", instr_addr).context("Writing to output")?;
     }
+
+    let superset = sample.into_superset();
+
+    let eval = evaluate::evaluate_result(&superset, &result);
+    let eval_summary = eval.summary();
+
+    println!("{:#?}", eval_summary);
 
     Ok(())
 }
@@ -467,7 +478,7 @@ async fn main_impl() -> Result<()> {
         Action::MakeGraph(args) => action_make_graph(args).await,
         Action::BulkMakeGraph(args) => action_bulk_make_graph(args).await,
         Action::PythonCodegen => action_python_codegen().await,
-        Action::RunTool(args) => action_run_tool(args).await,
+        Action::RunDisasmTool(args) => action_run_disasm_tool(args).await,
     }
 }
 

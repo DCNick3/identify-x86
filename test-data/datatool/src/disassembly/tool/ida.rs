@@ -1,3 +1,4 @@
+use crate::disassembly::DisassemblyResult;
 use crate::model::ExecutableSample;
 use anyhow::{Context, Result};
 use once_cell::sync::Lazy;
@@ -6,7 +7,7 @@ use serde::Deserialize;
 use std::collections::BTreeSet;
 use tokio::process::Command;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct IdaConfig {
     ida_path: String,
     show_output: bool,
@@ -73,7 +74,7 @@ fn parse_lst(lst: &str) -> Result<BTreeSet<u32>> {
     Ok(result)
 }
 
-pub async fn run_ida(config: &IdaConfig, sample: &ExecutableSample) -> Result<BTreeSet<u32>> {
+pub async fn run_ida(config: &IdaConfig, sample: &ExecutableSample) -> Result<DisassemblyResult> {
     let temp_dir = tempfile::tempdir().context("Failed to create temporary directory")?;
 
     let elf_path = temp_dir.path().join("sample.elf");
@@ -115,7 +116,9 @@ pub async fn run_ida(config: &IdaConfig, sample: &ExecutableSample) -> Result<BT
 
     let lst = std::fs::read_to_string(&lst_path).context("Failed to read IDA output")?;
 
-    let result = parse_lst(&lst)?;
+    let predicted_instructions = parse_lst(&lst)?;
 
-    Ok(result)
+    Ok(DisassemblyResult {
+        predicted_instructions,
+    })
 }
