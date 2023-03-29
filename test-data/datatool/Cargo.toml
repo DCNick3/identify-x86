@@ -42,6 +42,8 @@ rustc-hash = "1.1.0"
 serde = "1.0.145"
 serde_json = "1.0.85"
 serde_yaml = "0.9.19"
+# fixing the "entrypoint" api
+shiplift = { git = "https://github.com/DCNick3/shiplift", rev = "d53be92b194251b27a128b7403acd15c7ae185ce" }
 smallvec = "1.9.0"
 sptr = "0.3.2"
 strum = { version = "0.24.1", features = ["derive"] }
