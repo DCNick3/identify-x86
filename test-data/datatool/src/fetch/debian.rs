@@ -1,14 +1,16 @@
 use crate::model::ExecutableSample;
 use crate::Interval;
 use anyhow::{anyhow, bail, Context, Result};
+use async_stream::try_stream;
 use async_tar::{Archive, Entry, EntryType};
 use debian_packaging::deb::reader::{BinaryPackageEntry, BinaryPackageReader};
 use debian_packaging::repository::{BinaryPackageFetch, ReleaseReader};
-use futures_util::{AsyncRead, AsyncReadExt, StreamExt};
+use futures_util::{pin_mut, AsyncRead, AsyncReadExt, Stream, StreamExt};
 use object::read::elf::ElfFile32;
 use object::{Architecture, Object};
 use once_cell::sync::Lazy;
 use regex::Regex;
+use serde::Deserialize;
 use std::collections::{BTreeMap, HashSet};
 use std::future::Future;
 use std::io::Read;
@@ -17,7 +19,8 @@ use std::sync::Arc;
 use tracing::{info, warn};
 use yoke::Yokeable;
 
-pub struct DebianConfig {
+#[derive(Deserialize, Clone, Debug)]
+pub struct DebianSourceInfo {
     pub mirror: String,
     /// Debug mirror URL for debian 9+
     /// should no None for older versions
@@ -26,22 +29,11 @@ pub struct DebianConfig {
     pub distribution: String,
     pub debug_distribution: String,
     pub arch: String,
-}
-
-impl Default for DebianConfig {
-    fn default() -> Self {
-        Self {
-            mirror: "http://deb.debian.org/debian".to_string(),
-            debug_mirror: Some("http://debug.mirrors.debian.org/debian-debug".to_string()),
-            distribution: "buster".to_string(),
-            debug_distribution: "buster-debug".to_string(),
-            arch: "i386".to_string(),
-        }
-    }
+    pub packages: Vec<String>,
 }
 
 async fn find_packages<'a>(
-    config: &'a DebianConfig,
+    config: &'a DebianSourceInfo,
     release_reader: &'a dyn ReleaseReader,
     names: Arc<HashSet<String>>,
 ) -> Result<BTreeMap<String, BinaryPackageFetch<'a>>> {
@@ -76,7 +68,7 @@ enum DebugPackageSource {
 }
 
 async fn find_debug_packages<'a>(
-    config: &DebianConfig,
+    config: &DebianSourceInfo,
     release_reader: &'a dyn ReleaseReader,
     debug_release_reader: Option<&'a dyn ReleaseReader>,
     names: Arc<HashSet<String>>,
@@ -172,7 +164,7 @@ async fn extract_files<
     Ft: Future<Output = Result<Option<T>>>,
     F: Fn(Entry<Archive<Box<dyn AsyncRead + Unpin>>>) -> Ft,
 >(
-    mut reader: BinaryPackageReader<R>,
+    reader: &mut BinaryPackageReader<R>,
     map_filter: F,
 ) -> Result<BTreeMap<String, T>> {
     while let Some(entry) = reader.next_entry() {
@@ -310,125 +302,17 @@ async fn map_filter_debug(
     })
 }
 
-pub async fn dump_debian<S, F, P, I>(
-    config: &DebianConfig,
-    package_names: P,
-    save_sample: S,
-) -> Result<()>
-where
-    P: IntoIterator<Item = I>,
-    I: AsRef<str>,
-    S: Fn(&str, &str, ExecutableSample) -> F,
-    F: Future<Output = Result<()>>,
-{
-    let packages = Arc::new(
-        package_names
-            .into_iter()
-            .map(|v| v.as_ref().to_string())
-            .collect::<HashSet<_>>(),
-    );
+type BPR = BinaryPackageReader<std::io::Cursor<Vec<u8>>>;
 
-    info!("Getting debian packages {:?}", packages);
-    let repo_reader = debian_packaging::repository::reader_from_str(&config.mirror)
-        .context("Getting a RepositoryRootReader")?;
-
-    let debug_repo_reader = config
-        .debug_mirror
-        .as_ref()
-        .map(|mirror| {
-            debian_packaging::repository::reader_from_str(mirror)
-                .context("Getting a RepositoryRootReader for debug packages")
-        })
-        .transpose()?;
-
-    let release_reader = repo_reader
-        .release_reader(&config.distribution)
-        .await
-        .context("Getting a ReleaseReader")?;
-
-    let debug_release_reader = match debug_repo_reader.as_ref() {
-        Some(debug_repo_reader) => Some(
-            debug_repo_reader
-                .release_reader(&config.debug_distribution)
-                .await
-                .context("Getting a ReleaseReader for debug packages")?,
-        ),
-        None => None,
-    };
-
-    let time = std::time::Instant::now();
-
-    info!("Fetching package indices...");
-    let packages_to_fetch = find_packages(config, release_reader.as_ref(), packages.clone())
-        .await
-        .context("Finding packages")?;
-    let debug_packages_to_fetch = find_debug_packages(
-        config,
-        release_reader.as_ref(),
-        debug_release_reader.as_ref().map(|v| v.as_ref()),
-        packages.clone(),
-    )
-    .await
-    .context("Finding debug packages")?;
-
-    let elapsed = time.elapsed();
-
-    info!(
-        "Found {} packages to fetch in {}s",
-        packages_to_fetch.len(),
-        elapsed.as_secs()
-    );
-
-    // let total_size: u64 = packages_to_fetch
-    //     .values()
-    //     .map(|v| v.size)
-    //     .chain(debug_packages_to_fetch.values().map(|v| v.1.size))
-    //     .sum();
-
-    // let progress = ProgressBar::new(total_size).with_style(
-    //     ProgressStyle::with_template(
-    //         "[{elapsed_precise}] {bar:40.cyan/blue} {bytes:>7}/{total_bytes:7} [{bytes_per_sec:5}] {msg}",
-    //     )
-    //         .unwrap(),
-    // );
-
-    for package_name in packages_to_fetch.keys() {
-        // progress.println(format!("[[{}]]", package_name));
-        let package = packages_to_fetch.get(package_name).unwrap();
-        let debug_package = debug_packages_to_fetch.get(package_name);
-
-        // let package_size = package.size;
-        // let debug_package_size = debug_package.size;
-
-        // progress.set_message(format!("Fetching {}", package_name));
-        let package = repo_reader
-            .fetch_binary_package_deb_reader(package.clone())
-            .await
-            .with_context(|| format!("Downloading package {}", package_name))?;
-        // progress.inc(package_size);
-
-        // progress.set_message(format!("Fetching debug symbols for {}", package_name));
-        let debug_package = match debug_package {
-            Some((debug_package_source, debug_package)) => {
-                let debug_package_rr = match debug_package_source {
-                    DebugPackageSource::NormalRepo => &repo_reader,
-                    DebugPackageSource::DebugRepo => debug_repo_reader.as_ref().unwrap(),
-                };
-                Some(
-                    debug_package_rr
-                        .fetch_binary_package_deb_reader(debug_package.clone())
-                        .await
-                        .with_context(|| format!("Downloading debug package {}", package_name))?,
-                )
-            }
-            None => None,
-        };
-
-        // progress.inc(debug_package_size);
-
+fn process_package<'a>(
+    package_name: &'a str,
+    package: &'a mut BPR,
+    debug_package: Option<&'a mut BPR>,
+) -> impl Stream<Item = Result<(String, ExecutableSample)>> + 'a {
+    try_stream! {
         let executables = extract_files(package, map_filter_exec)
-            .await
-            .with_context(|| format!("Extracting package {}", package_name))?;
+        .await
+        .with_context(|| format!("Extracting package {}", package_name))?;
 
         let debugs = match debug_package {
             Some(debug_package) => extract_files(debug_package, map_filter_debug)
@@ -477,9 +361,9 @@ where
             };
 
             if (covered as f64 / total as f64) > 0.75 {
-                save_sample(package_name, &filename, sample)
-                    .await
-                    .context("Saving executable sample")?;
+                let escaped_filename = filename.strip_prefix("./").unwrap().replace('/', "_");
+
+                yield (format!("{}/{}", package_name, escaped_filename), sample);
             } else {
                 warn!(
                     "Executable {} in package {} (has_debug = {}) has low coverage ({}/{}). Skipping.",
@@ -491,12 +375,103 @@ where
                 );
             }
         }
-
-        // progress.println(format!(
-        //     "executables: {:?}",
-        //     executables.keys().collect::<Vec<_>>()
-        // ));
     }
+}
 
-    Ok(())
+pub fn fetch_debian(
+    config: &DebianSourceInfo,
+) -> impl Stream<Item = Result<(String, ExecutableSample)>> + '_ {
+    try_stream! {
+        let packages = Arc::new(
+            config.packages
+                .iter()
+                .cloned()
+                .collect::<HashSet<_>>(),
+        );
+
+        info!("Getting debian packages {:?}", packages);
+        let repo_reader = debian_packaging::repository::reader_from_str(&config.mirror)
+            .context("Getting a RepositoryRootReader")?;
+
+        let debug_repo_reader = config
+            .debug_mirror
+            .as_ref()
+            .map(|mirror| {
+                debian_packaging::repository::reader_from_str(mirror)
+                    .context("Getting a RepositoryRootReader for debug packages")
+            })
+            .transpose()?;
+
+        let release_reader = repo_reader
+            .release_reader(&config.distribution)
+            .await
+            .context("Getting a ReleaseReader")?;
+
+        let debug_release_reader = match debug_repo_reader.as_ref() {
+            Some(debug_repo_reader) => Some(
+                debug_repo_reader
+                    .release_reader(&config.debug_distribution)
+                    .await
+                    .context("Getting a ReleaseReader for debug packages")?,
+            ),
+            None => None,
+        };
+
+        let time = std::time::Instant::now();
+
+        info!("Fetching package indices...");
+        let packages_to_fetch = find_packages(config, release_reader.as_ref(), packages.clone())
+            .await
+            .context("Finding packages")?;
+        let debug_packages_to_fetch = find_debug_packages(
+            config,
+            release_reader.as_ref(),
+            debug_release_reader.as_ref().map(|v| v.as_ref()),
+            packages.clone(),
+        )
+        .await
+        .context("Finding debug packages")?;
+
+        let elapsed = time.elapsed();
+
+        info!(
+            "Found {} packages to fetch in {}s",
+            packages_to_fetch.len(),
+            elapsed.as_secs()
+        );
+
+        for package_name in packages_to_fetch.keys() {
+            let package = packages_to_fetch.get(package_name).unwrap();
+            let debug_package = debug_packages_to_fetch.get(package_name);
+
+            let mut package = repo_reader
+                .fetch_binary_package_deb_reader(package.clone())
+                .await
+                .with_context(|| format!("Downloading package {}", package_name))?;
+
+            // progress.set_message(format!("Fetching debug symbols for {}", package_name));
+            let mut debug_package = match debug_package {
+                Some((debug_package_source, debug_package)) => {
+                    let debug_package_rr = match debug_package_source {
+                        DebugPackageSource::NormalRepo => &repo_reader,
+                        DebugPackageSource::DebugRepo => debug_repo_reader.as_ref().unwrap(),
+                    };
+                    Some(
+                        debug_package_rr
+                            .fetch_binary_package_deb_reader(debug_package.clone())
+                            .await
+                            .with_context(|| format!("Downloading debug package {}", package_name))?,
+                    )
+                }
+                None => None,
+            };
+
+            let sample_stream = process_package(package_name, &mut package, debug_package.as_mut());
+            pin_mut!(sample_stream);
+            while let Some(r) = sample_stream.next().await {
+                let sample = r?;
+                yield sample;
+            }
+        }
+    }
 }

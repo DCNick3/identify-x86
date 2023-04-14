@@ -2,7 +2,7 @@
 
 use crate::loader::{dump_elf_symbols, load_executable};
 use crate::model::interval_set::Interval;
-use crate::model::{AddressClasses, ByteWeightPlatform, ExecutableSample, SampleSource};
+use crate::model::{AddressClasses, ByteWeightPlatform, ExecutableSample};
 use anyhow::{anyhow, bail, Context, Result};
 use object::read::elf::ElfFile32;
 use object::read::pe::PeFile32;
@@ -64,15 +64,7 @@ fn read_pe_x86(platform_path: &Path, executable_name: &str) -> Result<Executable
             .push(Interval::from_start_and_len(thunk, instr.len() as u32));
     }
 
-    ExecutableSample::new(
-        memory,
-        classes,
-        SampleSource::ByteWeight {
-            platform: ByteWeightPlatform::PeX86,
-            name: executable_name.to_string(),
-        },
-    )
-    .context("Creating sample")
+    ExecutableSample::new(memory, classes).context("Creating sample")
 }
 
 fn read_elf_x86(platform_path: &Path, executable_name: &str) -> Result<ExecutableSample> {
@@ -86,15 +78,7 @@ fn read_elf_x86(platform_path: &Path, executable_name: &str) -> Result<Executabl
     let memory = load_executable(&executable)?;
     let classes = dump_elf_symbols(&memory, &executable)?;
 
-    ExecutableSample::new(
-        memory,
-        classes,
-        SampleSource::ByteWeight {
-            platform: ByteWeightPlatform::ElfX86,
-            name: executable_name.to_string(),
-        },
-    )
-    .context("Creating sample")
+    ExecutableSample::new(memory, classes).context("Creating sample")
 }
 
 pub fn dump_byteweight<F: FnMut(ByteWeightPlatform, String, ExecutableSample) -> Result<()>>(

@@ -130,37 +130,15 @@ impl Display for ByteWeightPlatform {
     }
 }
 
-#[derive(Serialize, Deserialize, Eq, PartialEq, Debug, Clone)]
-pub enum SampleSource {
-    Pdb {
-        uuid: Uuid,
-        path: String,
-    },
-    Debian {
-        package_name: String,
-        path: String,
-        build_id: Vec<u8>,
-    },
-    ByteWeight {
-        platform: ByteWeightPlatform,
-        name: String,
-    },
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct ExecutableSample {
     pub memory: MemoryImage,
     pub classes: AddressClasses,
-    pub source: Option<SampleSource>,
 }
 
 impl ExecutableSample {
-    pub fn new(memory: MemoryImage, classes: AddressClasses, source: SampleSource) -> Result<Self> {
-        Ok(ExecutableSample {
-            memory,
-            classes,
-            source: Some(source),
-        })
+    pub fn new(memory: MemoryImage, classes: AddressClasses) -> Result<Self> {
+        Ok(ExecutableSample { memory, classes })
     }
 
     pub fn from_debian(
@@ -177,16 +155,10 @@ impl ExecutableSample {
                 .ok_or_else(|| anyhow::anyhow!("no build id"))?,
         );
 
-        let source = SampleSource::Debian {
-            package_name: package_name.to_string(),
-            path: path.to_string(),
-            build_id,
-        };
-
         let memory = load_executable(executable)?;
         let classes = dump_elf_symbols(&memory, debug_info.unwrap_or(executable))?;
 
-        Self::new(memory, classes, source)
+        Self::new(memory, classes)
     }
 
     pub fn from_pe_and_pdb<'s, S: std::io::Read + std::io::Seek + std::fmt::Debug + 's>(
@@ -195,7 +167,7 @@ impl ExecutableSample {
     ) -> Result<Self> {
         use object::Object;
 
-        let source = if let Some(pdb_info) = executable.pdb_info()? {
+        if let Some(pdb_info) = executable.pdb_info()? {
             let provided_guid = debug_info.pdb_information()?.guid;
             let expected_guid = Uuid::from_slice_le(&pdb_info.guid())?;
             if provided_guid != expected_guid {
@@ -204,11 +176,6 @@ impl ExecutableSample {
                     expected_guid,
                     provided_guid
                 );
-            }
-
-            SampleSource::Pdb {
-                path: String::from_utf8_lossy(pdb_info.path()).to_string(),
-                uuid: expected_guid,
             }
         } else {
             bail!("PE file does not contain PDB info");
@@ -220,7 +187,7 @@ impl ExecutableSample {
             debug_info,
         )?;
 
-        Self::new(memory, classes, source)
+        Self::new(memory, classes)
     }
 
     pub fn coverage(&self) -> (u32, u32) {

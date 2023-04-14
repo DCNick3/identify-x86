@@ -242,7 +242,6 @@ pub struct GraphSample {
     pub superset: Vec<(InstructionFeature, Option<Label>)>,
     // stores the graph, using indices into superset
     pub graph: Graph,
-    pub source: Option<String>,
 }
 
 impl GraphSample {
@@ -295,7 +294,6 @@ impl GraphSample {
                 .map(|(_addr, instr, label)| (instr, label))
                 .collect(),
             graph,
-            source: superset.source,
         }
     }
 

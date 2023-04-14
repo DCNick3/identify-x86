@@ -8,6 +8,7 @@ edition = "2021"
 
 anyhow = "1.0.64"
 arrayvec = "0.7.2"
+async-stream = "0.3.5"
 async-tar = "0.4.2"
 async-trait = "0.1.68"
 bincode = "1.3.3"

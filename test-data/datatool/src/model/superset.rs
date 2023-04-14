@@ -4,7 +4,6 @@ use enum_map::Enum;
 use iced_x86::{Code, DecoderOptions, InstructionInfoFactory, OpAccess, RflagsBits};
 use itertools::Itertools;
 use parquet::basic::Compression;
-use parquet::file::metadata::KeyValue;
 use parquet::file::properties::WriterProperties;
 use parquet::file::writer::SerializedFileWriter;
 use parquet::record::RecordWriter;
@@ -230,7 +229,6 @@ impl From<iced_x86::Instruction> for InstructionFeature {
 #[derive(Serialize, Deserialize)]
 pub struct SupersetSample {
     pub superset: Vec<(u32, InstructionFeature, Option<Label>)>,
-    pub source: Option<String>,
 }
 
 impl SupersetSample {
@@ -277,10 +275,7 @@ impl SupersetSample {
             }
         }
 
-        SupersetSample {
-            superset,
-            source: sample.source.map(|v| format!("{:?}", v)),
-        }
+        SupersetSample { superset }
     }
 
     pub fn into_graph(self) -> GraphSample {
@@ -312,15 +307,10 @@ impl SupersetSample {
 
         let records = records.as_slice();
 
-        let mut metadata = Vec::new();
-        if let Some(src) = self.source {
-            metadata.push(KeyValue::new("source".to_string(), src))
-        }
-
         let schema = records.schema()?;
         let props = Arc::new(
             WriterProperties::builder()
-                .set_key_value_metadata(Some(metadata))
+                // .set_key_value_metadata(Some(metadata))
                 .set_compression(Compression::ZSTD)
                 .build(),
         );

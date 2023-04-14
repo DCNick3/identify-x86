@@ -1,0 +1,59 @@
+- type: debian
+  subdirectory: debian/buster
+  distribution: buster
+  debug_distribution: buster-debug
+  arch: i386
+  mirror: http://deb.debian.org/debian
+  debug_mirror: http://debug.mirrors.debian.org/debian-debug
+  packages:
+    - bash
+    - gcc-8
+    - g++-8
+    - gzip
+    - zlib1g
+    - coreutils
+    - findutils
+    - binutils-i686-linux-gnu
+    - vim
+    - vim-gtk
+    - transmission-gtk
+    - plasma-desktop
+    - php7.3-common
+    - ntfs-3g
+    - libxml2
+    - libxcb1
+    - libopencv-core3.2
+    - libopencv-contrib3.2
+    - sqlite3
+    - libpopt0
+    - qt5-qmake-bin
+    - libqt5core5a
+    - pulseaudio
+    - policykit-1
+    - openssl
+    - okular
+    - wpasupplicant
+- type: debian
+  subdirectory: debian/jessie
+  distribution: jessie
+  debug_distribution: jessie-debug # fake, but we don't need it
+  arch: i386
+  mirror: http://archive.debian.org/debian
+  debug_mirror: ~
+  packages:
+    # most jessie packages do not have debug symbols, so we can't use most of them =(
+    - gdb
+    - wireshark
+    - zsh
+- type: debian
+  subdirectory: ubuntu/xenial
+  # actually, it's not a debian, but ubuntu
+  # but they use the same package manager, so it's what we need
+  distribution: xenial
+  debug_distribution: xenial
+  arch: i386
+  mirror: http://archive.ubuntu.com/ubuntu
+  debug_mirror: http://ddebs.ubuntu.com
+  packages:
+    - qml-module-ubuntu-components
+#- type
