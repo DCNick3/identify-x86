@@ -5,21 +5,26 @@ use crate::model::ExecutableSample;
 
 use anyhow::{Context, Result};
 use futures_util::{pin_mut, Stream};
-use serde::Deserialize;
-use tracing::info;
+use serde::{Deserialize, Serialize};
+use tracing::{debug, info};
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(tag = "type")]
 #[serde(rename_all = "kebab-case")]
 pub enum SpecificSourceInfo {
     Debian(DebianSourceInfo),
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct SourceInfo {
     pub subdirectory: String,
     #[serde(flatten)]
     pub specific: SpecificSourceInfo,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct FetchConfig {
+    pub sources: Vec<SourceInfo>,
 }
 
 pub fn fetch_source(
@@ -40,6 +45,12 @@ pub async fn fetch_source_to_directory(
     directory: &std::path::Path,
 ) -> Result<()> {
     use futures_util::StreamExt;
+
+    match tokio::fs::remove_dir_all(directory.join(&source_info.subdirectory)).await {
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => anyhow::bail!("failed to remove directory {}: {}", directory.display(), e),
+    }
 
     let stream = fetch_source(source_info);
     pin_mut!(stream);
@@ -63,15 +74,70 @@ pub async fn fetch_source_to_directory(
     Ok(())
 }
 
-pub async fn fetch_sources_to_directory(
-    source_infos: &[SourceInfo],
+fn read_stamp(path: &std::path::Path) -> Result<Option<SpecificSourceInfo>> {
+    let stamp_path = path.join("sync-stamp");
+    match std::fs::read_to_string(&stamp_path) {
+        Ok(stamp) => {
+            let stamped_config = serde_json::from_str::<SpecificSourceInfo>(&stamp)
+                .with_context(|| format!("failed to parse {}", stamp_path.display()))?;
+            Ok(Some(stamped_config))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => Err(e).with_context(|| format!("failed to read {}", stamp_path.display())),
+    }
+}
+
+fn write_stamp(path: &std::path::Path, config: &SpecificSourceInfo) -> Result<()> {
+    let stamp_path = path.join("sync-stamp");
+    let stamp = serde_json::to_string(config)
+        .with_context(|| format!("failed to serialize {}", stamp_path.display()))?;
+    std::fs::write(&stamp_path, stamp)
+        .with_context(|| format!("failed to write {}", stamp_path.display()))?;
+    Ok(())
+}
+
+pub async fn sync_sources_to_directory(
+    fetch_config: &FetchConfig,
     directory: &std::path::Path,
 ) -> Result<()> {
     tokio::fs::create_dir_all(directory).await?;
 
-    for source in source_infos {
+    // ensure no sources have the same subdirectory
+    {
+        let mut subdirectories = std::collections::HashSet::new();
+        for source in &fetch_config.sources {
+            if !subdirectories.insert(&source.subdirectory) {
+                anyhow::bail!(
+                    "subdirectory {} is used for multiple sources",
+                    source.subdirectory
+                );
+            }
+        }
+    }
+
+    // find which sources are outdated or missing
+    let mut outdated = Vec::new();
+    for source in &fetch_config.sources {
+        match read_stamp(&directory.join(&source.subdirectory))? {
+            Some(stamped_config) if stamped_config == source.specific => {
+                debug!("{} is up to date", source.subdirectory);
+            }
+            _ => {
+                debug!("{} is outdated", source.subdirectory);
+                outdated.push(source);
+            }
+        }
+    }
+
+    info!("{} sources are outdated", outdated.len());
+
+    for source in outdated {
         info!("fetching {}...", source.subdirectory);
-        fetch_source_to_directory(source, directory).await?;
+        fetch_source_to_directory(source, directory)
+            .await
+            .with_context(|| format!("Fetching source {}", source.subdirectory))?;
+        write_stamp(&directory.join(&source.subdirectory), &source.specific)
+            .with_context(|| format!("Failed to write stamp for source {}", source.subdirectory))?;
     }
 
     Ok(())

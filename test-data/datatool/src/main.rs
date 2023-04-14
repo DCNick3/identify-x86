@@ -13,17 +13,13 @@ use crate::model::interval_set::Interval;
 use crate::model::{CodeVocab, CodeVocabBuilder, ExecutableSample};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-// use debian_config::DebianConfigOpt;
-use crate::fetch::SourceInfo;
 use indicatif::ParallelProgressIterator;
-use object::read::pe::PeFile32;
 use rayon::prelude::*;
 use std::fs::File;
 use std::io::BufWriter;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::path::PathBuf;
 use std::time::Instant;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -33,7 +29,7 @@ struct Args {
 
 #[derive(Debug, Subcommand)]
 enum Action {
-    FetchData(FetchData),
+    FetchData(SyncData),
     ShowSample(ShowSample),
     SampleToStrippedElf(SampleToStrippedElf),
     MakeSuperset(MakeSuperset),
@@ -44,10 +40,10 @@ enum Action {
 }
 
 #[derive(Debug, clap::Args)]
-struct FetchData {
+struct SyncData {
     #[clap(long, default_value = "sources.yaml")]
     sources_config: PathBuf,
-    #[clap(long, default_value = "test-data/data")]
+    #[clap(long, default_value = "test-data/samples")]
     output_directory: PathBuf,
 }
 
@@ -192,14 +188,14 @@ struct RunDisasmTool {
 //     Ok(())
 // }
 
-async fn action_fetch_data(args: FetchData) -> Result<()> {
+async fn action_sync_data(args: SyncData) -> Result<()> {
     let config_path = args.sources_config;
     let config = std::fs::read_to_string(&config_path)
         .with_context(|| format!("Reading sources config file {}", config_path.display()))?;
-    let config: Vec<SourceInfo> = serde_yaml::from_str(&config)
+    let config = serde_yaml::from_str(&config)
         .with_context(|| format!("Parsing sources config file {}", config_path.display()))?;
 
-    fetch::fetch_sources_to_directory(&config, &args.output_directory)
+    fetch::sync_sources_to_directory(&config, &args.output_directory)
         .await
         .context("Fetching sources")?;
 
@@ -427,7 +423,7 @@ async fn main_impl() -> Result<()> {
     let args = Args::parse();
 
     match args.action {
-        Action::FetchData(args) => action_fetch_data(args).await,
+        Action::FetchData(args) => action_sync_data(args).await,
         Action::ShowSample(args) => action_show_sample(args).await,
         Action::SampleToStrippedElf(args) => action_sample_to_stripped_elf(args).await,
         Action::MakeSuperset(args) => action_make_superset(args).await,

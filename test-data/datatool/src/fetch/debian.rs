@@ -10,7 +10,7 @@ use object::read::elf::ElfFile32;
 use object::{Architecture, Object};
 use once_cell::sync::Lazy;
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::future::Future;
 use std::io::Read;
@@ -19,7 +19,7 @@ use std::sync::Arc;
 use tracing::{info, warn};
 use yoke::Yokeable;
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct DebianSourceInfo {
     pub mirror: String,
     /// Debug mirror URL for debian 9+
