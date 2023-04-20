@@ -328,9 +328,7 @@ fn process_package<'a>(
             let debug_info = debugs.get(&build_id);
             info!("EXE {} {}", build_id, filename);
 
-            let sample = ExecutableSample::from_debian(
-                package_name,
-                &filename,
+            let sample = ExecutableSample::from_elf(
                 executable.get(),
                 debug_info.map(|v| v.get()),
             )

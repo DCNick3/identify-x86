@@ -1,12 +1,35 @@
-//! Implement parsing of ByteWeight experiment data
-
 use crate::loader::{dump_elf_symbols, load_executable};
 use crate::model::interval_set::Interval;
-use crate::model::{AddressClasses, ByteWeightPlatform, ExecutableSample};
-use anyhow::{anyhow, bail, Context, Result};
+use crate::model::{AddressClasses, ExecutableSample};
+use anyhow::{anyhow, Result};
+use anyhow::{bail, Context};
+use async_stream::try_stream;
+use futures_util::Stream;
 use object::read::elf::ElfFile32;
 use object::read::pe::PeFile32;
+use serde::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter};
 use std::path::Path;
+
+#[derive(Serialize, Deserialize, Eq, PartialEq, Debug, Copy, Clone)]
+pub enum ByteWeightPlatform {
+    PeX86,
+    ElfX86,
+}
+
+impl Display for ByteWeightPlatform {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ByteWeightPlatform::PeX86 => write!(f, "pe-x86"),
+            ByteWeightPlatform::ElfX86 => write!(f, "elf-x86"),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ByteweightSourceInfo {
+    pub experiments_path: String,
+}
 
 fn read_pe_x86(platform_path: &Path, executable_name: &str) -> Result<ExecutableSample> {
     let executable_path = platform_path.join("binary").join(&executable_name);
@@ -81,41 +104,44 @@ fn read_elf_x86(platform_path: &Path, executable_name: &str) -> Result<Executabl
     ExecutableSample::new(memory, classes).context("Creating sample")
 }
 
-pub fn dump_byteweight<F: FnMut(ByteWeightPlatform, String, ExecutableSample) -> Result<()>>(
-    root_path: &Path,
-    mut callback: F,
-) -> Result<()> {
-    let platforms = vec![
-        ("pe-x86", ByteWeightPlatform::PeX86),
-        ("elf-x86", ByteWeightPlatform::ElfX86),
-    ];
+pub fn fetch_byteweight(
+    byteweight: &ByteweightSourceInfo,
+) -> impl Stream<Item = Result<(String, ExecutableSample)>> + '_ {
+    try_stream! {
+        let root_path = Path::new(&byteweight.experiments_path);
 
-    for (platform_name, platform) in platforms {
-        let platform_path = root_path.join(platform_name);
-        let executable_names = std::fs::read_dir(platform_path.join("binary"))
-            .with_context(|| format!("Reading list of binaries from {:?}", platform_path))?
-            .map(|entry| {
-                entry.context("Reading directory").and_then(|entry| {
-                    Ok(entry
-                        .file_name()
-                        .into_string()
-                        .map_err(|_| anyhow!("non-utf8 filename"))?)
+        let platforms = vec![
+            ("pe-x86", ByteWeightPlatform::PeX86),
+            ("elf-x86", ByteWeightPlatform::ElfX86),
+        ];
+
+        for (platform_name, platform) in platforms {
+            let platform_path = root_path.join(platform_name);
+            let executable_names = std::fs::read_dir(platform_path.join("binary"))
+                .with_context(|| format!("Reading list of binaries from {:?}", platform_path))?
+                .map(|entry| {
+                    entry.context("Reading directory").and_then(|entry| {
+                        Ok(entry
+                            .file_name()
+                            .into_string()
+                            .map_err(|_| anyhow!("non-utf8 filename"))?)
+                    })
                 })
-            })
-            .collect::<Result<Vec<_>>>()?;
+                .collect::<Result<Vec<_>>>()?;
 
-        for executable_name in executable_names {
-            if executable_name.starts_with("icc_") {
-                // TODO: investigate icc symbols, seem to be noisy, potentially broken
-                continue;
+            for executable_name in executable_names {
+                if executable_name.starts_with("icc_") {
+                    // TODO: investigate icc symbols, seem to be noisy, potentially broken
+                    continue;
+                }
+                let sample = match platform {
+                    ByteWeightPlatform::PeX86 => read_pe_x86(&platform_path, &executable_name)?,
+                    ByteWeightPlatform::ElfX86 => read_elf_x86(&platform_path, &executable_name)?,
+                };
+                let path = format!("{}/{}", platform_name, executable_name);
+
+                yield (path, sample);
             }
-            let sample = match platform {
-                ByteWeightPlatform::PeX86 => read_pe_x86(&platform_path, &executable_name)?,
-                ByteWeightPlatform::ElfX86 => read_elf_x86(&platform_path, &executable_name)?,
-            };
-            callback(platform, executable_name, sample).context("Callback failed")?;
         }
     }
-
-    Ok(())
 }

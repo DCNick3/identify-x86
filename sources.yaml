@@ -57,3 +57,6 @@ sources:
     debug_mirror: http://ddebs.ubuntu.com
     packages:
       - qml-module-ubuntu-components
+  - type: byteweight
+    subdirectory: byteweight
+    experiments_path: test-data/ByteWeight_experiment

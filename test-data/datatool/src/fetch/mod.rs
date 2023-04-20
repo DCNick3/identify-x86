@@ -1,4 +1,7 @@
+mod byteweight;
 mod debian;
+
+pub use byteweight::ByteweightSourceInfo;
 pub use debian::DebianSourceInfo;
 
 use crate::model::ExecutableSample;
@@ -6,6 +9,7 @@ use crate::model::ExecutableSample;
 use anyhow::{Context, Result};
 use futures_util::{pin_mut, Stream};
 use serde::{Deserialize, Serialize};
+use tokio_util::either::Either;
 use tracing::{debug, info};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -13,6 +17,7 @@ use tracing::{debug, info};
 #[serde(rename_all = "kebab-case")]
 pub enum SpecificSourceInfo {
     Debian(DebianSourceInfo),
+    Byteweight(ByteweightSourceInfo),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -33,7 +38,10 @@ pub fn fetch_source(
     use futures_util::StreamExt;
 
     let stream = match &source_info.specific {
-        SpecificSourceInfo::Debian(debian) => debian::fetch_debian(debian),
+        SpecificSourceInfo::Debian(debian) => Either::Left(debian::fetch_debian(debian)),
+        SpecificSourceInfo::Byteweight(byteweight) => {
+            Either::Right(byteweight::fetch_byteweight(byteweight))
+        }
     };
 
     stream

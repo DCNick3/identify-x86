@@ -51,6 +51,7 @@ sptr = "0.3.2"
 strum = { version = "0.24.1", features = ["derive"] }
 tempfile = "3.4.0"
 tokio = { version = "1.21.0", features = ["macros", "rt", "process"] }
+tokio-util = "0.7.7"
 tracing = "0.1.36"
 tracing-subscriber = { version = "0.3.15", features = ["env-filter"] }
 uuid = { version = "1.1.2", features = ["serde"] }

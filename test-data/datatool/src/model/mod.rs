@@ -115,21 +115,6 @@ impl AddressClasses {
     }
 }
 
-#[derive(Serialize, Deserialize, Eq, PartialEq, Debug, Copy, Clone)]
-pub enum ByteWeightPlatform {
-    PeX86,
-    ElfX86,
-}
-
-impl Display for ByteWeightPlatform {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ByteWeightPlatform::PeX86 => write!(f, "pe-x86"),
-            ByteWeightPlatform::ElfX86 => write!(f, "elf-x86"),
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct ExecutableSample {
     pub memory: MemoryImage,
@@ -141,20 +126,7 @@ impl ExecutableSample {
         Ok(ExecutableSample { memory, classes })
     }
 
-    pub fn from_debian(
-        package_name: &str,
-        path: &str,
-        executable: &ElfFile32,
-        debug_info: Option<&ElfFile32>,
-    ) -> Result<Self> {
-        use object::Object;
-
-        let build_id = Vec::from(
-            executable
-                .build_id()?
-                .ok_or_else(|| anyhow::anyhow!("no build id"))?,
-        );
-
+    pub fn from_elf(executable: &ElfFile32, debug_info: Option<&ElfFile32>) -> Result<Self> {
         let memory = load_executable(executable)?;
         let classes = dump_elf_symbols(&memory, debug_info.unwrap_or(executable))?;
 
