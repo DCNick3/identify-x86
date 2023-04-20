@@ -66,7 +66,9 @@ pub async fn fetch_source_to_directory(
     while let Some(r) = stream.next().await {
         let (name, sample) =
             r.with_context(|| format!("failed while fetching {}", source_info.subdirectory))?;
-        let path = directory.join(name);
+        let mut path = directory.join(name);
+        path.set_extension("sample");
+
         tokio::fs::create_dir_all(path.parent().unwrap())
             .await
             .with_context(|| format!("failed to create directory {}", path.display()))?;
