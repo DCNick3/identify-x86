@@ -226,7 +226,7 @@ impl From<iced_x86::Instruction> for InstructionFeature {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct SupersetSample {
     pub superset: Vec<(u32, InstructionFeature, Option<Label>)>,
 }

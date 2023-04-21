@@ -19,7 +19,6 @@ use object::write::elf::ProgramHeader;
 use object::Endianness;
 use pdb::PDB;
 use serde::{Deserialize, Serialize};
-use std::fmt::{Display, Formatter};
 use std::io::Write;
 use uuid::Uuid;
 
@@ -115,7 +114,7 @@ impl AddressClasses {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct ExecutableSample {
     pub memory: MemoryImage,
     pub classes: AddressClasses,

@@ -84,7 +84,7 @@ impl MemoryImageItem {
 
 /// Represents a executable image
 /// Is implemented as a collection of memory regions & references to their contents
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct MemoryImage {
     regions: Vec<MemoryImageItem>,
 }
