@@ -59,6 +59,8 @@ class LightningModel(pl.LightningModule):
         self.valid_recall = torchmetrics.classification.BinaryRecall()
         self.valid_f1 = torchmetrics.classification.F1Score(task='binary')
 
+        self.validation_step_outputs = []
+
 
     def forward(self, x_code: Tensor, x_size: Tensor, edge_index: Tensor, edge_type: Tensor):
         x_out = self.model(x_code, x_size, edge_index, edge_type)
@@ -96,7 +98,8 @@ class LightningModel(pl.LightningModule):
 
         x_out = self.forward(x_code, x_size, edge_index, edge_type)
 
-        #loss = torch.nn.functional.cross_entropy(x_out, batch.y)
+        loss = torch.nn.functional.cross_entropy(x_out, batch.y)
+        self.validation_step_outputs.append(loss)
 
         pred = x_out.argmax(-1)
 
@@ -112,7 +115,7 @@ class LightningModel(pl.LightningModule):
 
         return x_out, pred, batch.y
 
-    def validation_epoch_end(self, validation_step_outputs):
+    def on_validation_epoch_end(self):
         val_loss = 0.0
         num_correct = 0
         num_total = 0
@@ -121,8 +124,8 @@ class LightningModel(pl.LightningModule):
         num_fp = 0
         num_fn = 0
 
-        for output, pred, labels in validation_step_outputs:
-            val_loss += torch.nn.functional.cross_entropy(output, labels, reduction="sum")
+        val_loss += torch.sum(torch.stack(self.validation_step_outputs))
+        self.validation_step_outputs.clear()
 
         self.log("loss/val", val_loss)
 
