@@ -44,10 +44,17 @@ class IdentifyModel(torch.nn.Module):
 
 
 class LightningModel(pl.LightningModule):
-    def __init__(self):
+    def __init__(self, true_instr_weight: float = 8.0):
         super(LightningModel, self).__init__()
 
         self.model = IdentifyModel()
+
+        self.loss = torch.nn.CrossEntropyLoss(
+            weight = torch.tensor([
+                1.0,
+                true_instr_weight,
+            ])
+        )
 
         self.train_accuracy = torchmetrics.classification.BinaryAccuracy()
         self.train_precision = torchmetrics.classification.BinaryPrecision()
