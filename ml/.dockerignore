@@ -1,0 +1,9 @@
+data
+data.old
+*.pt
+model_jit*
+superset
+*.zst
+*.superset
+*.graph
+lightning_logs

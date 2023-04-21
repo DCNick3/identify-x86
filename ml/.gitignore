@@ -4,6 +4,9 @@
 *.pt
 superset/
 data/
+data.old/
+
+model_jit*
 
 .ipynb_checkpoints/
 lightning_logs
