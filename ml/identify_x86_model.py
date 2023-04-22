@@ -44,8 +44,9 @@ class IdentifyModel(torch.nn.Module):
 
 
 class LightningModel(pl.LightningModule):
-    def __init__(self, true_instr_weight: float = 8.0):
+    def __init__(self, true_instr_weight: float = 8.0, learning_rate: float = 3e-4):
         super(LightningModel, self).__init__()
+        self.save_hyperparameters()
 
         self.model = IdentifyModel()
 
@@ -55,6 +56,7 @@ class LightningModel(pl.LightningModule):
                 true_instr_weight,
             ])
         )
+        self.optim = torch.optim.Adam(self.parameters(), lr = learning_rate)
 
         self.train_accuracy = torchmetrics.classification.BinaryAccuracy()
         self.train_precision = torchmetrics.classification.BinaryPrecision()
@@ -80,7 +82,7 @@ class LightningModel(pl.LightningModule):
 
         x_out = self.forward(x_code, x_size, edge_index, edge_type)
 
-        loss = torch.nn.functional.cross_entropy(x_out, batch.y)
+        loss = self.loss(x_out, batch.y)
 
         # metrics here
         pred = x_out.argmax(-1)
@@ -105,7 +107,7 @@ class LightningModel(pl.LightningModule):
 
         x_out = self.forward(x_code, x_size, edge_index, edge_type)
 
-        loss = torch.nn.functional.cross_entropy(x_out, batch.y)
+        loss = self.loss(x_out, batch.y)
         self.validation_step_outputs.append(loss)
 
         pred = x_out.argmax(-1)
@@ -137,4 +139,4 @@ class LightningModel(pl.LightningModule):
         self.log("loss/val", val_loss)
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr = 3e-4)
+        return self.optim
