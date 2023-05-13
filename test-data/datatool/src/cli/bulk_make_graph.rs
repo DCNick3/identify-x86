@@ -1,4 +1,3 @@
-use crate::cli::BulkMakeGraph;
 use crate::model::{CodeVocabBuilder, ExecutableSample};
 use anyhow::Context;
 use indicatif::ParallelProgressIterator;
@@ -108,4 +107,13 @@ pub(super) async fn action_bulk_make_graph(args: BulkMakeGraph) -> anyhow::Resul
     )?)?;
 
     Ok(())
+}
+
+#[derive(Debug, clap::Args)]
+pub struct BulkMakeGraph {
+    samples_path: PathBuf,
+    #[clap(short, long, default_value_t = 500)]
+    vocab_size: usize,
+    vocab_out_path: PathBuf,
+    graphs_out_path: PathBuf,
 }

@@ -1,13 +1,14 @@
 mod bulk_make_graph;
 mod similarity;
 
+use bulk_make_graph::BulkMakeGraph;
+use similarity::CheckSimilarity;
+
 use crate::disassembly::{DisasmToolName, ExecutableDisassembler};
 use crate::model::{CodeVocab, ExecutableSample};
 use crate::{evaluate, fetch};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use indicatif::ProgressIterator;
-use owo_colors::OwoColorize;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
@@ -66,25 +67,11 @@ struct MakeGraph {
 }
 
 #[derive(Debug, clap::Args)]
-struct BulkMakeGraph {
-    samples_path: PathBuf,
-    #[clap(short, long, default_value_t = 500)]
-    vocab_size: usize,
-    vocab_out_path: PathBuf,
-    graphs_out_path: PathBuf,
-}
-
-#[derive(Debug, clap::Args)]
 struct RunDisasmTool {
     tool: DisasmToolName,
     sample_path: PathBuf,
     #[clap(short, long)]
     output_path: Option<PathBuf>,
-}
-
-#[derive(Debug, clap::Args)]
-struct CheckSimilarity {
-    samples: Vec<PathBuf>,
 }
 
 impl Cli {

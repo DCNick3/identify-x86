@@ -1,4 +1,9 @@
-use crate::cli::CheckSimilarity;
+use std::path::PathBuf;
+
+#[derive(Debug, clap::Args)]
+pub struct CheckSimilarity {
+    samples: Vec<PathBuf>,
+}
 
 pub async fn action_check_similarity(args: CheckSimilarity) -> anyhow::Result<()> {
     use crate::model::ExecutableSample;
