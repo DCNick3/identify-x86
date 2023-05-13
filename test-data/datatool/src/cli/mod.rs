@@ -2,7 +2,7 @@ mod bulk_make_graph;
 mod similarity;
 
 use bulk_make_graph::BulkMakeGraph;
-use similarity::CheckSimilarity;
+use similarity::{CheckSimilarity, SplitSamples};
 
 use crate::disassembly::{DisasmToolName, ExecutableDisassembler};
 use crate::model::{CodeVocab, ExecutableSample};
@@ -30,6 +30,7 @@ enum Action {
     PythonCodegen,
     RunDisasmTool(RunDisasmTool),
     CheckSimilarity(CheckSimilarity),
+    SplitSamples(SplitSamples),
 }
 
 #[derive(Debug, clap::Args)]
@@ -86,6 +87,7 @@ impl Cli {
             Action::PythonCodegen => action_python_codegen().await,
             Action::RunDisasmTool(args) => action_run_disasm_tool(args).await,
             Action::CheckSimilarity(args) => similarity::action_check_similarity(args).await,
+            Action::SplitSamples(args) => similarity::action_split_samples(args).await,
         }
     }
 }

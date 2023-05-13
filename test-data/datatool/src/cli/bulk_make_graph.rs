@@ -7,6 +7,15 @@ use std::path::PathBuf;
 use std::time::Instant;
 use tracing::info;
 
+#[derive(Debug, clap::Args)]
+pub struct BulkMakeGraph {
+    samples_path: PathBuf,
+    #[clap(short, long, default_value_t = 500)]
+    vocab_size: usize,
+    vocab_out_path: PathBuf,
+    graphs_out_path: PathBuf,
+}
+
 pub(super) async fn action_bulk_make_graph(args: BulkMakeGraph) -> anyhow::Result<()> {
     rayon::ThreadPoolBuilder::new()
         .num_threads(16)
@@ -107,13 +116,4 @@ pub(super) async fn action_bulk_make_graph(args: BulkMakeGraph) -> anyhow::Resul
     )?)?;
 
     Ok(())
-}
-
-#[derive(Debug, clap::Args)]
-pub struct BulkMakeGraph {
-    samples_path: PathBuf,
-    #[clap(short, long, default_value_t = 500)]
-    vocab_size: usize,
-    vocab_out_path: PathBuf,
-    graphs_out_path: PathBuf,
 }
