@@ -1,3 +1,4 @@
+use crate::cli::util::collect_sample_paths;
 use crate::model::{CodeVocabBuilder, ExecutableSample};
 use anyhow::Context;
 use indicatif::ParallelProgressIterator;
@@ -22,15 +23,7 @@ pub(super) async fn action_bulk_make_graph(args: BulkMakeGraph) -> anyhow::Resul
         .build_global()
         .context("Initializing thread pool")?;
 
-    let samples = walkdir::WalkDir::new(&args.samples_path)
-        .into_iter()
-        .filter(|e| {
-            e.as_ref()
-                .map(|e| e.path().extension().unwrap_or_default() == "sample")
-                .unwrap_or(false)
-        })
-        .map(|r| r.map(|e| e.into_path()).map_err(|e| e.into()))
-        .collect::<anyhow::Result<Vec<PathBuf>>>()?;
+    let samples = collect_sample_paths(&args.samples_path)?;
 
     info!("Found {} samples", samples.len());
 

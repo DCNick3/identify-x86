@@ -1661,6 +1661,7 @@ dependencies = [
  "bitflags 2.0.2",
  "bumpalo",
  "clap",
+ "csv",
  "dbg_hex",
  "debian-packaging",
  "enum-map",

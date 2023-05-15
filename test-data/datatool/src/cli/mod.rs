@@ -1,23 +1,19 @@
 mod bulk_make_graph;
 mod evaluation;
 mod similarity;
+mod util;
 
 use bulk_make_graph::BulkMakeGraph;
+use evaluation::{Evaluate, RunDisasmTool, RunDisasmTools};
 use similarity::{CheckSimilarity, SplitSamples};
 
-use crate::disassembly::{DisasmToolName, ExecutableDisassembler};
+use crate::fetch;
 use crate::model::{CodeVocab, ExecutableSample};
-use crate::{evaluate, fetch};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use indicatif::ProgressIterator;
-use prettytable::{row, Table};
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
-use std::time::Instant;
-use strum::IntoEnumIterator;
-use tracing::error;
 
 #[derive(Debug, Parser)]
 pub struct Cli {
@@ -36,6 +32,7 @@ enum Action {
     PythonCodegen,
     RunDisasmTool(RunDisasmTool),
     RunDisasmTools(RunDisasmTools),
+    Evaluate(Evaluate),
     CheckSimilarity(CheckSimilarity),
     SplitSamples(SplitSamples),
 }
@@ -74,21 +71,6 @@ struct MakeGraph {
     output_path: PathBuf,
 }
 
-#[derive(Debug, clap::Args)]
-struct RunDisasmTool {
-    tool: DisasmToolName,
-    sample_path: PathBuf,
-    #[clap(short, long)]
-    output_path: Option<PathBuf>,
-}
-
-#[derive(Debug, clap::Args)]
-struct RunDisasmTools {
-    sample_path: PathBuf,
-    #[clap(short, long)]
-    output_path: Option<PathBuf>,
-}
-
 impl Cli {
     pub async fn run(self) -> Result<()> {
         match self.action {
@@ -99,8 +81,9 @@ impl Cli {
             Action::MakeGraph(args) => action_make_graph(args).await,
             Action::BulkMakeGraph(args) => bulk_make_graph::action_bulk_make_graph(args).await,
             Action::PythonCodegen => action_python_codegen().await,
-            Action::RunDisasmTool(args) => action_run_disasm_tool(args).await,
-            Action::RunDisasmTools(args) => action_run_disasm_tools(args).await,
+            Action::RunDisasmTool(args) => evaluation::action_run_disasm_tool(args).await,
+            Action::RunDisasmTools(args) => evaluation::action_run_disasm_tools(args).await,
+            Action::Evaluate(args) => evaluation::action_evaluate(args).await,
             Action::CheckSimilarity(args) => similarity::action_check_similarity(args).await,
             Action::SplitSamples(args) => similarity::action_split_samples(args).await,
         }
@@ -182,102 +165,6 @@ async fn action_make_graph(args: MakeGraph) -> Result<()> {
 
 async fn action_python_codegen() -> Result<()> {
     eprintln!("Nothing here");
-
-    Ok(())
-}
-
-async fn action_run_disasm_tool(args: RunDisasmTool) -> Result<()> {
-    let sample = ExecutableSample::deserialize_from(&mut File::open(&args.sample_path)?)?;
-
-    let config_file = "runners.yaml";
-    let config = std::fs::read_to_string("runners.yaml")
-        .with_context(|| format!("Reading runners config file {}", config_file))?;
-    let config = serde_yaml::from_str(&config)
-        .with_context(|| format!("Parsing runners config file {} as YAML", config_file))?;
-
-    let result = args
-        .tool
-        .with_config(&config)
-        .disassemble(&sample)
-        .await
-        .context("Running disasm tool")?;
-
-    let mut output: Box<dyn std::io::Write> = match args.output_path {
-        Some(v) => Box::new(File::create(v)?),
-        None => Box::new(std::io::sink()),
-    };
-
-    for &instr_addr in &result.predicted_instructions {
-        writeln!(output, "0x{:x}", instr_addr).context("Writing to output")?;
-    }
-
-    let superset = sample.into_superset();
-
-    let eval = evaluate::evaluate_result(&superset, &result);
-    let eval_summary = eval.summary();
-
-    println!("{:#?}", eval_summary);
-
-    Ok(())
-}
-
-async fn action_run_disasm_tools(args: RunDisasmTools) -> Result<()> {
-    let sample = ExecutableSample::deserialize_from(&mut File::open(&args.sample_path)?)?;
-    let superset = sample.clone().into_superset();
-
-    let config_file = "runners.yaml";
-    let config = std::fs::read_to_string("runners.yaml")
-        .with_context(|| format!("Reading runners config file {}", config_file))?;
-    let config = serde_yaml::from_str(&config)
-        .with_context(|| format!("Parsing runners config file {} as YAML", config_file))?;
-
-    let mut table = Table::new();
-    table.set_format(*prettytable::format::consts::FORMAT_BORDERS_ONLY);
-    table.set_titles(row![
-        "Tool",
-        "True Positives",
-        "False Positives",
-        "False Negatives",
-        "Precision",
-        "Recall",
-        "F1",
-        "Time",
-    ]);
-
-    for tool in DisasmToolName::iter().progress() {
-        let start = Instant::now();
-        let result = match tool
-            .with_config(&config)
-            .disassemble(&sample)
-            .await
-            .context("Running disasm tool")
-        {
-            Ok(v) => v,
-            Err(e) => {
-                error!("Error running {:?}: {}", tool, e);
-                continue;
-            }
-        };
-
-        // Note that this time includes docker overhead!
-        let time = start.elapsed();
-
-        let eval = evaluate::evaluate_result(&superset, &result);
-        let s = eval.summary();
-
-        table.add_row(row![
-            format!("{:?}", tool),
-            s.true_positives,
-            s.false_positives,
-            s.false_negatives,
-            format!("{:.05}", s.precision),
-            format!("{:.05}", s.recall),
-            format!("{:.05}", s.f1),
-            format!("{:.02}s", time.as_secs_f64())
-        ]);
-    }
-
-    println!("{}", table);
 
     Ok(())
 }

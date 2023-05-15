@@ -1,3 +1,4 @@
+use crate::cli::util::collect_sample_paths;
 use crate::model::ExecutableSample;
 use crate::split::{NGramIndex, SplitBuilder};
 use indicatif::{ParallelProgressIterator, ProgressIterator};
@@ -76,15 +77,7 @@ pub async fn action_check_similarity(args: CheckSimilarity) -> anyhow::Result<()
 pub async fn action_split_samples(args: SplitSamples) -> anyhow::Result<()> {
     use petgraph::prelude::*;
 
-    let sample_paths = walkdir::WalkDir::new(&args.samples_path)
-        .into_iter()
-        .filter(|e| {
-            e.as_ref()
-                .map(|e| e.path().extension().unwrap_or_default() == "sample")
-                .unwrap_or(false)
-        })
-        .map(|r| r.map(|e| e.into_path()).map_err(|e| e.into()))
-        .collect::<anyhow::Result<Vec<PathBuf>>>()?;
+    let sample_paths = collect_sample_paths(&args.samples_path)?;
 
     info!("Found {} samples", sample_paths.len());
 
@@ -99,11 +92,7 @@ pub async fn action_split_samples(args: SplitSamples) -> anyhow::Result<()> {
                 .map_err(anyhow::Error::from)
                 .and_then(|mut f| ExecutableSample::deserialize_from(&mut f))
                 .map(|sample| {
-                    let size = sample
-                        .memory
-                        .iter()
-                        .map(|item| item.data.len() as u64)
-                        .sum::<u64>();
+                    let size = sample.size();
                     let ngrams = NGramIndex::<NGRAMS_N>::new(&sample.memory);
 
                     (size, ngrams)
@@ -186,15 +175,17 @@ pub async fn action_split_samples(args: SplitSamples) -> anyhow::Result<()> {
     let mut output = File::create(&args.labels_out_path)?;
     for (group, group_name) in split.iter().zip(&["train", "test"]) {
         for sample_path in group.items.iter().map(|&i| &sample_paths[i]).sorted() {
-            let sample_path = sample_path
+            let sample_name = sample_path
                 .to_str()
                 .unwrap()
                 .strip_prefix(path_prefix)
                 .unwrap()
+                .strip_prefix("/")
+                .unwrap()
                 .strip_suffix(".sample")
                 .unwrap();
 
-            writeln!(output, "{} {}", group_name, sample_path)?;
+            writeln!(output, "{} {}", group_name, sample_name)?;
         }
     }
 

@@ -5,7 +5,7 @@ mod identify_x86;
 use crate::model::ExecutableSample;
 use anyhow::Result;
 use async_trait::async_trait;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use strum::{EnumIter, EnumString};
 
 use crate::disassembly::{DisassemblyResult, ExecutableDisassembler};
@@ -20,8 +20,9 @@ pub struct DisasmToolConfig {
     pub identify_x86: IdentifyX86Config,
 }
 
-#[derive(Debug, Copy, Clone, EnumString, EnumIter)]
+#[derive(Debug, Copy, Clone, EnumString, EnumIter, Serialize)]
 #[strum(serialize_all = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
 pub enum DisasmToolName {
     Ida,
     Deepdi,

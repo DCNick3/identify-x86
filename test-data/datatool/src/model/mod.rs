@@ -161,6 +161,13 @@ impl ExecutableSample {
         Self::new(memory, classes)
     }
 
+    pub fn size(&self) -> u64 {
+        self.memory
+            .iter()
+            .map(|item| item.data.len() as u64)
+            .sum::<u64>()
+    }
+
     pub fn coverage(&self) -> (u32, u32) {
         let covered = self.classes.coverage();
         let total = self
