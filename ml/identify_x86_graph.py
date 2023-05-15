@@ -18,10 +18,11 @@ def zipfile_factory(file, *args, **kwargs):
     return zipfile.ZipFile(file, *args, **kwargs)
 np.lib.npyio.zipfile_factory = zipfile_factory
 
-def load_graph(filename):
+def load_graph(filename, name=None):
     npz = np.load(filename)
     
     G = Data()
+    G.name = name
     G.num_nodes = npz['instruction_codes'].shape[0]
     G.x_code = torch.from_numpy(npz['instruction_codes']).to(torch.long)
     G.x_size = torch.from_numpy(npz['instruction_sizes']).to(torch.long)
@@ -35,3 +36,12 @@ def load_graph(filename):
     G.edge_type = edge_ty
 
     return G
+
+def load_split(filename):
+    def gen():
+        with open(filename) as f:
+            for line in f.read().splitlines():
+                if line.strip() == '':
+                    continue
+                yield tuple(line.split(' ', 1)[::-1])
+    return dict(gen())

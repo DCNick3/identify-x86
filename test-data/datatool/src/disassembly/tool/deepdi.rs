@@ -7,7 +7,7 @@ use shiplift::tty::TtyChunk;
 use shiplift::{ContainerOptions, Docker};
 use std::collections::BTreeSet;
 use std::io::Write;
-use tracing::{error, warn};
+use tracing::{debug, error, warn};
 
 /// Runs the DeepDi tool in a docker container.
 #[derive(Deserialize, Clone)]
@@ -20,6 +20,8 @@ pub async fn run_deepdi(
     config: &DeepDiConfig,
     sample: &ExecutableSample,
 ) -> Result<DisassemblyResult> {
+    debug!("Running DeepDi");
+
     let docker = Docker::new();
 
     let sample_elf = sample
@@ -87,17 +89,17 @@ pub async fn run_deepdi(
         .await
         .context("Failed to wait for DeepDi container")?;
 
+    if result.status_code != 0 {
+        anyhow::bail!(
+            "DeepDi exited with non-successful exit code: {}. The contained is not deleted.",
+            result.status_code
+        );
+    }
+
     container
         .delete()
         .await
         .context("Failed to delete DeepDi container")?;
-
-    if result.status_code != 0 {
-        anyhow::bail!(
-            "DeepDi exited with non-successful exit code: {}",
-            result.status_code
-        );
-    }
 
     let output = std::str::from_utf8(&output).context("Failed to parse DeepDi output as string")?;
 

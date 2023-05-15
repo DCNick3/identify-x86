@@ -6,6 +6,7 @@ use regex::Regex;
 use serde::Deserialize;
 use std::collections::BTreeSet;
 use tokio::process::Command;
+use tracing::debug;
 
 #[derive(Deserialize, Clone)]
 pub struct IdaConfig {
@@ -75,6 +76,8 @@ fn parse_lst(lst: &str) -> Result<BTreeSet<u32>> {
 }
 
 pub async fn run_ida(config: &IdaConfig, sample: &ExecutableSample) -> Result<DisassemblyResult> {
+    debug!("Running IDA");
+
     let temp_dir = tempfile::tempdir().context("Failed to create temporary directory")?;
 
     let elf_path = temp_dir.path().join("sample.elf");

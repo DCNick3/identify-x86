@@ -23,6 +23,8 @@ pub async fn run_identify_x86(
     config: &IdentifyX86Config,
     sample: &ExecutableSample,
 ) -> Result<DisassemblyResult> {
+    debug!("Running IdentifyX86");
+
     let docker = Docker::new();
 
     debug!("Computing the graph");
@@ -102,17 +104,17 @@ pub async fn run_identify_x86(
 
     drop(sample_graph_file);
 
-    // container
-    //     .delete()
-    //     .await
-    //     .context("Failed to delete identify-x86 container")?;
-
     if result.status_code != 0 {
         anyhow::bail!(
-            "identify-x86 exited with non-successful exit code: {}",
+            "identify-x86 exited with non-successful exit code: {}. The contained is not deleted.",
             result.status_code
         );
     }
+
+    container
+        .delete()
+        .await
+        .context("Failed to delete identify-x86 container")?;
 
     let output =
         std::str::from_utf8(&output).context("Failed to parse identify-x86 output as string")?;
